@@ -12,6 +12,7 @@ import {
   MAX_MESSAGE_LENGTH,
   activeBotToken,
   agentDefaultModel,
+  agentSystemPrompt,
   TYPING_REFRESH_MS,
 } from './config.js';
 import { clearSession, getRecentConversation, getRecentMemories, getSession, setSession, lookupWaChatId, saveWaMessageMap, saveTokenUsage } from './db.js';
@@ -314,7 +315,11 @@ async function handleMessage(ctx: Context, message: string, forceVoiceReply = fa
 
   // Build memory context and prepend to message
   const memCtx = await buildMemoryContext(chatIdStr, message);
-  const fullMessage = memCtx ? `${memCtx}\n\n${message}` : message;
+  const parts: string[] = [];
+  if (agentSystemPrompt) parts.push(`[Agent role — follow these instructions]\n${agentSystemPrompt}\n[End agent role]`);
+  if (memCtx) parts.push(memCtx);
+  parts.push(message);
+  const fullMessage = parts.join('\n\n');
 
   const sessionId = getSession(chatIdStr, AGENT_ID);
 
@@ -1067,7 +1072,11 @@ export async function processMessageFromDashboard(
 
   try {
     const memCtx = await buildMemoryContext(chatIdStr, text);
-    const fullMessage = memCtx ? `${memCtx}\n\n${text}` : text;
+    const dashParts: string[] = [];
+    if (agentSystemPrompt) dashParts.push(`[Agent role — follow these instructions]\n${agentSystemPrompt}\n[End agent role]`);
+    if (memCtx) dashParts.push(memCtx);
+    dashParts.push(text);
+    const fullMessage = dashParts.join('\n\n');
     const sessionId = getSession(chatIdStr, AGENT_ID);
 
     const onProgress = (event: AgentProgressEvent) => {

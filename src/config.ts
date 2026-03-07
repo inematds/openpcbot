@@ -25,6 +25,7 @@ export let activeBotToken =
 export let agentCwd: string | undefined; // undefined = use PROJECT_ROOT
 export let agentDefaultModel: string | undefined; // from agent.yaml
 export let agentObsidianConfig: { vault: string; folders: string[]; readOnly?: string[] } | undefined;
+export let agentSystemPrompt: string | undefined; // loaded from agents/{id}/CLAUDE.md
 
 export function setAgentOverrides(opts: {
   agentId: string;
@@ -32,12 +33,14 @@ export function setAgentOverrides(opts: {
   cwd: string;
   model?: string;
   obsidian?: { vault: string; folders: string[]; readOnly?: string[] };
+  systemPrompt?: string;
 }): void {
   AGENT_ID = opts.agentId;
   activeBotToken = opts.botToken;
   agentCwd = opts.cwd;
   agentDefaultModel = opts.model;
   agentObsidianConfig = opts.obsidian;
+  agentSystemPrompt = opts.systemPrompt;
 }
 
 export const TELEGRAM_BOT_TOKEN =

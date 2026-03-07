@@ -18,12 +18,19 @@ const AGENT_ID = agentFlagIndex !== -1 ? process.argv[agentFlagIndex + 1] : 'mai
 
 if (AGENT_ID !== 'main') {
   const agentConfig = loadAgentConfig(AGENT_ID);
+  const agentDir = path.join(PROJECT_ROOT, 'agents', AGENT_ID);
+  const claudeMdPath = path.join(agentDir, 'CLAUDE.md');
+  let systemPrompt: string | undefined;
+  try {
+    systemPrompt = fs.readFileSync(claudeMdPath, 'utf-8');
+  } catch { /* no CLAUDE.md */ }
   setAgentOverrides({
     agentId: AGENT_ID,
     botToken: agentConfig.botToken,
-    cwd: path.join(PROJECT_ROOT, 'agents', AGENT_ID),
+    cwd: agentDir,
     model: agentConfig.model,
     obsidian: agentConfig.obsidian,
+    systemPrompt,
   });
   logger.info({ agentId: AGENT_ID, name: agentConfig.name }, 'Running as agent');
 }
