@@ -22,9 +22,11 @@ function createSchema(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_tasks_next_run ON scheduled_tasks(status, next_run);
 
     CREATE TABLE IF NOT EXISTS sessions (
-      chat_id   TEXT PRIMARY KEY,
+      chat_id    TEXT NOT NULL,
+      agent_id   TEXT NOT NULL DEFAULT 'main',
       session_id TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (chat_id, agent_id)
     );
 
     CREATE TABLE IF NOT EXISTS memories (
@@ -162,10 +164,25 @@ function runMigrations(database: Database.Database): void {
     database.exec(`ALTER TABLE token_usage ADD COLUMN context_tokens INTEGER NOT NULL DEFAULT 0`);
   }
 
-  // Multi-agent: add agent_id columns to existing tables
-  const sessionCols = database.prepare(`PRAGMA table_info(sessions)`).all() as Array<{ name: string }>;
-  if (!sessionCols.some((c) => c.name === 'agent_id')) {
-    database.exec(`ALTER TABLE sessions ADD COLUMN agent_id TEXT NOT NULL DEFAULT 'main'`);
+  // Multi-agent: migrate sessions table to composite primary key (chat_id, agent_id)
+  // Check if PK is composite by looking at pk column count in pragma
+  const sessionCols = database.prepare(`PRAGMA table_info(sessions)`).all() as Array<{ name: string; pk: number }>;
+  const pkCount = sessionCols.filter((c) => c.pk > 0).length;
+  if (pkCount < 2) {
+    // Need to recreate table with composite PK
+    database.exec(`
+      CREATE TABLE sessions_new (
+        chat_id    TEXT NOT NULL,
+        agent_id   TEXT NOT NULL DEFAULT 'main',
+        session_id TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (chat_id, agent_id)
+      );
+      INSERT OR IGNORE INTO sessions_new (chat_id, agent_id, session_id, updated_at)
+        SELECT chat_id, COALESCE(agent_id, 'main'), session_id, updated_at FROM sessions;
+      DROP TABLE sessions;
+      ALTER TABLE sessions_new RENAME TO sessions;
+    `);
   }
 
   const taskCols = database.prepare(`PRAGMA table_info(scheduled_tasks)`).all() as Array<{ name: string }>;
@@ -200,11 +217,9 @@ export function getSession(chatId: string, agentId = 'main'): string | undefined
 }
 
 export function setSession(chatId: string, sessionId: string, agentId = 'main'): void {
-  // Delete any existing row for this chat+agent combo, then insert fresh
-  db.prepare('DELETE FROM sessions WHERE chat_id = ? AND agent_id = ?').run(chatId, agentId);
   db.prepare(
-    'INSERT INTO sessions (chat_id, session_id, updated_at, agent_id) VALUES (?, ?, ?, ?)',
-  ).run(chatId, sessionId, new Date().toISOString(), agentId);
+    'INSERT OR REPLACE INTO sessions (chat_id, agent_id, session_id, updated_at) VALUES (?, ?, ?, ?)',
+  ).run(chatId, agentId, sessionId, new Date().toISOString());
 }
 
 export function clearSession(chatId: string, agentId = 'main'): void {
