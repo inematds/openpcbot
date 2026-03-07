@@ -8,6 +8,9 @@ import path from 'path';
 import { AGENT_ID, ALLOWED_CHAT_ID, DASHBOARD_PORT, DASHBOARD_TOKEN, PROJECT_ROOT, STORE_DIR, WHATSAPP_ENABLED, SLACK_USER_TOKEN, CONTEXT_LIMIT } from './config.js';
 import {
   getAllScheduledTasks,
+  deleteScheduledTask,
+  pauseScheduledTask,
+  resumeScheduledTask,
   getConversationPage,
   getDashboardMemoryStats,
   getDashboardLowSalienceMemories,
@@ -55,6 +58,27 @@ export function startDashboard(botApi?: Api<RawApi>): void {
   app.get('/api/tasks', (c) => {
     const tasks = getAllScheduledTasks();
     return c.json({ tasks });
+  });
+
+  // Delete a scheduled task
+  app.delete('/api/tasks/:id', (c) => {
+    const id = c.req.param('id');
+    deleteScheduledTask(id);
+    return c.json({ ok: true });
+  });
+
+  // Pause a scheduled task
+  app.post('/api/tasks/:id/pause', (c) => {
+    const id = c.req.param('id');
+    pauseScheduledTask(id);
+    return c.json({ ok: true });
+  });
+
+  // Resume a scheduled task
+  app.post('/api/tasks/:id/resume', (c) => {
+    const id = c.req.param('id');
+    resumeScheduledTask(id);
+    return c.json({ ok: true });
   });
 
   // Memory stats

@@ -387,6 +387,17 @@ function countdown(ts) {
   return Math.floor(diff/86400) + 'd';
 }
 
+async function taskAction(id, action) {
+  try {
+    if (action === 'delete') {
+      await fetch(BASE + '/api/tasks/' + id + '?token=' + TOKEN, { method: 'DELETE' });
+    } else {
+      await fetch(BASE + '/api/tasks/' + id + '/' + action + '?token=' + TOKEN, { method: 'POST' });
+    }
+    await loadTasks();
+  } catch(e) { console.error('Task action failed:', e); }
+}
+
 async function loadTasks() {
   try {
     const data = await api('/api/tasks');
@@ -397,8 +408,13 @@ async function loadTasks() {
     }
     c.innerHTML = data.tasks.map(t => {
       const statusCls = t.status === 'active' ? 'pill-active' : 'pill-paused';
+      const agentBadge = t.agent_id && t.agent_id !== 'main' ? '<span class="text-xs text-gray-500 ml-2">[' + t.agent_id + ']</span>' : '';
       const lastResult = t.last_result ? '<details class="mt-2"><summary class="text-xs text-gray-500">Last result</summary><pre class="text-xs text-gray-400 mt-1 whitespace-pre-wrap break-words">' + escapeHtml(t.last_result) + '</pre></details>' : '';
-      return '<div class="card"><div class="flex justify-between items-start"><div class="flex-1 mr-2"><div class="text-sm text-white">' + escapeHtml(t.prompt) + '</div><div class="text-xs text-gray-500 mt-1">' + cronToHuman(t.schedule) + ' &middot; next in <span class="countdown" data-ts="' + t.next_run + '">' + countdown(t.next_run) + '</span></div></div><span class="pill ' + statusCls + '">' + t.status + '</span></div>' + lastResult + '</div>';
+      const pauseBtn = t.status === 'active'
+        ? '<button data-task="' + t.id + '" data-action="pause" onclick="taskAction(this.dataset.task,this.dataset.action)" title="Pause" style="background:none;border:none;cursor:pointer;color:#fbbf24;font-size:14px;padding:2px 4px">&#9208;</button>'
+        : '<button data-task="' + t.id + '" data-action="resume" onclick="taskAction(this.dataset.task,this.dataset.action)" title="Resume" style="background:none;border:none;cursor:pointer;color:#6ee7b7;font-size:14px;padding:2px 4px">&#9654;</button>';
+      const deleteBtn = '<button data-task="' + t.id + '" data-action="delete" onclick="taskAction(this.dataset.task,this.dataset.action)" title="Delete" style="background:none;border:none;cursor:pointer;color:#f87171;font-size:14px;padding:2px 4px">&times;</button>';
+      return '<div class="card"><div class="flex justify-between items-start"><div class="flex-1 mr-2"><div class="text-sm text-white">' + escapeHtml(t.prompt) + agentBadge + '</div><div class="text-xs text-gray-500 mt-1">' + cronToHuman(t.schedule) + ' &middot; next in <span class="countdown" data-ts="' + t.next_run + '">' + countdown(t.next_run) + '</span></div></div><div class="flex items-center gap-1">' + pauseBtn + deleteBtn + '<span class="pill ' + statusCls + '">' + t.status + '</span></div></div>' + lastResult + '</div>';
     }).join('');
   } catch(e) {
     document.getElementById('tasks-container').innerHTML = '<div class="card text-red-400 text-sm">Failed to load tasks</div>';
@@ -586,17 +602,48 @@ async function loadAgents() {
     section.style.display = '';
     container.innerHTML = data.agents.map(a => {
       const color = AGENT_COLORS[a.id] || '#6b7280';
-      const dot = a.running ? '<span style="color:#6ee7b7">\\u25CF</span>' : '<span style="color:#666">\\u25CB</span>';
+      const dot = a.running ? '<span style="color:#6ee7b7">\u25CF</span>' : '<span style="color:#666">\u25CB</span>';
       const statusText = a.running ? 'live' : 'off';
-      const modelShort = (a.model || '').replace('claude-', '').replace(/-\\d+.*/, '');
-      return '<div class="card" style="min-width:130px;flex:1;max-width:200px;border-left:3px solid ' + color + '">' +
+      const modelShort = (a.model || '').replace('claude-', '').replace(/-\d+.*/, '');
+      return '<div class="card clickable-card" style="min-width:130px;flex:1;max-width:220px;border-left:3px solid ' + color + '" data-agent="' + a.id + '" onclick="toggleAgentDetail(this.dataset.agent)">' +
         '<div class="font-bold text-white text-sm">' + a.name + '</div>' +
         '<div class="text-xs mt-1">' + dot + ' ' + statusText + '</div>' +
         '<div class="text-xs text-gray-500">' + modelShort + '</div>' +
         (a.running ? '<div class="text-xs text-gray-400 mt-1">' + a.todayTurns + ' turns &middot; $' + (a.todayCost||0).toFixed(2) + '</div>' : '') +
+        '<div id="agent-detail-' + a.id + '" style="display:none" class="mt-2 pt-2" style="border-top:1px solid #333"></div>' +
       '</div>';
     }).join('');
   } catch {}
+}
+
+async function toggleAgentDetail(agentId) {
+  const el = document.getElementById('agent-detail-' + agentId);
+  if (!el) return;
+  if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+  el.style.display = '';
+  el.innerHTML = '<div class="text-xs text-gray-500">Loading...</div>';
+  try {
+    const [tasks, hive] = await Promise.all([
+      api('/api/agents/' + agentId + '/tasks'),
+      api('/api/hive-mind?agent=' + agentId + '&limit=5'),
+    ]);
+    let html = '';
+    if (hive.entries && hive.entries.length > 0) {
+      html += '<div class="text-xs text-gray-400 font-semibold mb-1">Recent activity</div>';
+      html += hive.entries.map(e => {
+        const time = new Date(e.created_at * 1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+        return '<div class="text-xs text-gray-400">' + time + ' ' + e.action + ' — ' + e.summary + '</div>';
+      }).join('');
+    }
+    if (tasks.tasks && tasks.tasks.length > 0) {
+      html += '<div class="text-xs text-gray-400 font-semibold mt-2 mb-1">Scheduled (' + tasks.tasks.length + ')</div>';
+      html += tasks.tasks.slice(0, 3).map(t =>
+        '<div class="text-xs text-gray-500">' + t.prompt.slice(0, 60) + (t.prompt.length > 60 ? '...' : '') + '</div>'
+      ).join('');
+    }
+    if (!html) html = '<div class="text-xs text-gray-500">No recent activity</div>';
+    el.innerHTML = html;
+  } catch { el.innerHTML = '<div class="text-xs text-red-400">Failed to load</div>'; }
 }
 
 async function loadHiveMind() {
