@@ -15,6 +15,11 @@ const envConfig = readEnvFile([
   'DASHBOARD_PORT',
   'DASHBOARD_TOKEN',
   'DASHBOARD_URL',
+  'OLLAMA_MODEL',
+  'OLLAMA_ROUTER_MODEL',
+  'OLLAMA_URL',
+  'OPENROUTER_API_KEY',
+  'OPENROUTER_MODEL',
 ]);
 
 // ── Multi-agent support ──────────────────────────────────────────────
@@ -83,6 +88,20 @@ export const CONTEXT_LIMIT = parseInt(
   process.env.CONTEXT_LIMIT || envConfig.CONTEXT_LIMIT || '1000000',
   10,
 );
+
+// ── Multi-agent: Ollama ──────────────────────────────────────────────
+export const OLLAMA_URL =
+  process.env.OLLAMA_URL || envConfig.OLLAMA_URL || 'http://localhost:11434';
+export const OLLAMA_MODEL =
+  process.env.OLLAMA_MODEL || envConfig.OLLAMA_MODEL || 'qwen2.5:14b';
+export const OLLAMA_ROUTER_MODEL =
+  process.env.OLLAMA_ROUTER_MODEL || envConfig.OLLAMA_ROUTER_MODEL || 'llama3.2';
+
+// ── Multi-agent: OpenRouter ─────────────────────────────────────────
+export const OPENROUTER_API_KEY =
+  process.env.OPENROUTER_API_KEY || envConfig.OPENROUTER_API_KEY || '';
+export const OPENROUTER_MODEL =
+  process.env.OPENROUTER_MODEL || envConfig.OPENROUTER_MODEL || 'deepseek/deepseek-chat';
 
 // Dashboard — web UI for monitoring ClaudeClaw state
 export const DASHBOARD_PORT = parseInt(

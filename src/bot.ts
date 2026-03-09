@@ -14,7 +14,14 @@ import {
   agentDefaultModel,
   agentSystemPrompt,
   TYPING_REFRESH_MS,
+  OLLAMA_MODEL,
+  OLLAMA_ROUTER_MODEL,
+  OPENROUTER_MODEL,
 } from './config.js';
+import { ollamaChat, ollamaListModels, ollamaHealthCheck, OllamaMessage } from './ollama.js';
+import { openrouterChat, openrouterAvailable, OpenRouterMessage } from './openrouter.js';
+import { runCodex, codexAvailable } from './codex.js';
+import { routeMessage, AgentTarget } from './router.js';
 import { clearSession, getRecentConversation, getRecentMemories, getSession, setSession, lookupWaChatId, saveWaMessageMap, saveTokenUsage } from './db.js';
 import { logger } from './logger.js';
 import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage } from './media.js';
@@ -91,6 +98,18 @@ const AVAILABLE_MODELS: Record<string, string> = {
   haiku: 'claude-haiku-4-5',
 };
 const DEFAULT_MODEL_LABEL = 'opus';
+
+// Per-chat model overrides for multi-agent systems (in-memory, resets on restart)
+const chatOllamaModel = new Map<string, string>();
+const chatOpenrouterModel = new Map<string, string>();
+
+// Per-chat conversation history for Ollama/OpenRouter (no session persistence like Claude)
+const ollamaHistory = new Map<string, OllamaMessage[]>();
+const openrouterHistory = new Map<string, OpenRouterMessage[]>();
+const MAX_HISTORY = 20; // max messages to keep per chat
+
+// Per-chat orchestrator toggle (off by default — messages go straight to Ollama)
+const orchestratorEnabled = new Set<string>();
 
 // WhatsApp state per Telegram chat
 interface WaStateList { mode: 'list'; chats: WaChat[] }
@@ -280,6 +299,172 @@ function isAuthorised(chatId: number): boolean {
     return true;
   }
   return chatId.toString() === ALLOWED_CHAT_ID;
+}
+
+/**
+ * Handle a message via Ollama (direct chat, not orchestrator).
+ */
+async function handleOllamaMessage(ctx: Context, message: string): Promise<void> {
+  const chatId = ctx.chat!.id;
+  const chatIdStr = chatId.toString();
+  const model = chatOllamaModel.get(chatIdStr) ?? OLLAMA_MODEL;
+
+  await sendTyping(ctx.api, chatId);
+  const typingInterval = setInterval(() => void sendTyping(ctx.api, chatId), TYPING_REFRESH_MS);
+  setProcessing(chatIdStr, true);
+
+  try {
+    // Maintain conversation history (prepend system prompt on first message)
+    let history = ollamaHistory.get(chatIdStr) ?? [];
+    if (history.length === 0) {
+      history.push({
+        role: 'system',
+        content: 'You are a helpful assistant running inside ClaudeClaw, a multi-agent Telegram bot. You answer questions directly. If the user asks you to edit files, run commands, deploy code, or do anything that requires system tools, tell them to use /claude or /codex — those agents have full tool access. Keep responses concise.',
+      });
+    }
+    history.push({ role: 'user', content: message });
+    if (history.length > MAX_HISTORY) history = history.slice(-MAX_HISTORY);
+
+    const response = await ollamaChat(model, history);
+    history.push({ role: 'assistant', content: response });
+    ollamaHistory.set(chatIdStr, history);
+
+    emitChatEvent({ type: 'assistant_message', chatId: chatIdStr, content: response, source: 'telegram' });
+    saveConversationTurn(chatIdStr, message, response, undefined, AGENT_ID);
+
+    for (const part of splitMessage(formatForTelegram(response))) {
+      await ctx.reply(part, { parse_mode: 'HTML' });
+    }
+  } catch (err) {
+    logger.error({ err }, 'Ollama error');
+    const errMsg = err instanceof Error ? err.message : String(err);
+    await ctx.reply(`Ollama error: ${errMsg}`);
+  } finally {
+    clearInterval(typingInterval);
+    setProcessing(chatIdStr, false);
+  }
+}
+
+/**
+ * Handle a message via OpenRouter.
+ */
+async function handleOpenrouterMessage(ctx: Context, message: string): Promise<void> {
+  const chatId = ctx.chat!.id;
+  const chatIdStr = chatId.toString();
+  const model = chatOpenrouterModel.get(chatIdStr) ?? OPENROUTER_MODEL;
+
+  if (!openrouterAvailable()) {
+    await ctx.reply('OPENROUTER_API_KEY not configured. Add it to .env and restart.');
+    return;
+  }
+
+  await sendTyping(ctx.api, chatId);
+  const typingInterval = setInterval(() => void sendTyping(ctx.api, chatId), TYPING_REFRESH_MS);
+  setProcessing(chatIdStr, true);
+
+  try {
+    let history = openrouterHistory.get(chatIdStr) ?? [];
+    history.push({ role: 'user', content: message });
+    if (history.length > MAX_HISTORY) history = history.slice(-MAX_HISTORY);
+
+    const response = await openrouterChat(model, history);
+    history.push({ role: 'assistant', content: response });
+    openrouterHistory.set(chatIdStr, history);
+
+    emitChatEvent({ type: 'assistant_message', chatId: chatIdStr, content: response, source: 'telegram' });
+    saveConversationTurn(chatIdStr, message, response, undefined, AGENT_ID);
+
+    for (const part of splitMessage(formatForTelegram(response))) {
+      await ctx.reply(part, { parse_mode: 'HTML' });
+    }
+  } catch (err) {
+    logger.error({ err }, 'OpenRouter error');
+    const errMsg = err instanceof Error ? err.message : String(err);
+    await ctx.reply(`OpenRouter error: ${errMsg}`);
+  } finally {
+    clearInterval(typingInterval);
+    setProcessing(chatIdStr, false);
+  }
+}
+
+/**
+ * Handle a message via Codex CLI.
+ */
+async function handleCodexMessage(ctx: Context, message: string): Promise<void> {
+  const chatId = ctx.chat!.id;
+  const chatIdStr = chatId.toString();
+
+  await sendTyping(ctx.api, chatId);
+  const typingInterval = setInterval(() => void sendTyping(ctx.api, chatId), TYPING_REFRESH_MS);
+  setProcessing(chatIdStr, true);
+
+  try {
+    const result = await runCodex(message, { cwd: process.cwd() });
+
+    emitChatEvent({ type: 'assistant_message', chatId: chatIdStr, content: result.text, source: 'telegram' });
+    saveConversationTurn(chatIdStr, message, result.text, undefined, AGENT_ID);
+
+    for (const part of splitMessage(formatForTelegram(result.text))) {
+      await ctx.reply(part, { parse_mode: 'HTML' });
+    }
+  } catch (err) {
+    logger.error({ err }, 'Codex error');
+    const errMsg = err instanceof Error ? err.message : String(err);
+    await ctx.reply(`Codex error: ${errMsg}`);
+  } finally {
+    clearInterval(typingInterval);
+    setProcessing(chatIdStr, false);
+  }
+}
+
+/**
+ * Handle a message via the Ollama orchestrator (router).
+ * Classifies the message and dispatches to the right agent, or responds directly.
+ */
+async function handleRoutedMessage(ctx: Context, message: string, forceVoiceReply = false, skipLog = false): Promise<void> {
+  const chatIdStr = ctx.chat!.id.toString();
+
+  // Check if Ollama router is available, fall back to Claude if not
+  const health = await ollamaHealthCheck(OLLAMA_ROUTER_MODEL);
+  if (!health.ok) {
+    logger.warn({ error: health.error }, 'Ollama router unavailable, falling back to Claude');
+    return handleMessage(ctx, message, forceVoiceReply, skipLog);
+  }
+
+  await sendTyping(ctx.api, ctx.chat!.id);
+
+  try {
+    const decision = await routeMessage(message, OLLAMA_ROUTER_MODEL);
+
+    if (decision.action === 'respond' && decision.response) {
+      // Ollama responded directly
+      emitChatEvent({ type: 'assistant_message', chatId: chatIdStr, content: decision.response, source: 'telegram' });
+      if (!skipLog) saveConversationTurn(chatIdStr, message, decision.response, undefined, AGENT_ID);
+      for (const part of splitMessage(formatForTelegram(decision.response))) {
+        await ctx.reply(part, { parse_mode: 'HTML' });
+      }
+    } else if (decision.action === 'route') {
+      const agent = decision.agent ?? 'claude';
+      const instructions = decision.instructions ?? message;
+
+      switch (agent) {
+        case 'claude':
+          return handleMessage(ctx, instructions, forceVoiceReply, skipLog);
+        case 'codex':
+          return handleCodexMessage(ctx, instructions);
+        case 'openrouter':
+          return handleOpenrouterMessage(ctx, instructions);
+        default:
+          return handleMessage(ctx, instructions, forceVoiceReply, skipLog);
+      }
+    } else {
+      // Fallback: send to Claude
+      return handleMessage(ctx, message, forceVoiceReply, skipLog);
+    }
+  } catch (err) {
+    logger.error({ err }, 'Router error, falling back to Claude');
+    return handleMessage(ctx, message, forceVoiceReply, skipLog);
+  }
 }
 
 /**
@@ -499,7 +684,13 @@ export function createBot(): Bot {
     { command: 'newchat', description: 'Start a new Claude session' },
     { command: 'respin', description: 'Reload recent context' },
     { command: 'voice', description: 'Toggle voice mode on/off' },
-    { command: 'model', description: 'Switch model (opus/sonnet/haiku)' },
+    { command: 'model', description: 'Switch Claude model (opus/sonnet/haiku)' },
+    { command: 'claude', description: 'Send to Claude (full tools)' },
+    { command: 'ollama', description: 'Send to Ollama (or switch model)' },
+    { command: 'codex', description: 'Send to Codex (OpenAI)' },
+    { command: 'openrouter', description: 'Send to OpenRouter (or switch model)' },
+    { command: 'models', description: 'Show active models for all agents' },
+    { command: 'orq', description: 'Toggle orchestrator on/off' },
     { command: 'memory', description: 'View recent memories' },
     { command: 'forget', description: 'Clear session' },
     { command: 'wa', description: 'Recent WhatsApp messages' },
@@ -508,22 +699,45 @@ export function createBot(): Bot {
     { command: 'stop', description: 'Stop current processing' },
   ]).catch((err) => logger.warn({ err }, 'Failed to register bot commands with Telegram'));
 
-  // /help — list available commands
+  // /help — list available commands with usage guide
   bot.command('help', (ctx) => {
     if (!isAuthorised(ctx.chat!.id)) return;
     return ctx.reply(
-      'ClaudeClaw — Commands\n\n' +
+      '<b>ClaudeClaw</b>\n\n' +
+
+      '<b>Agents</b>\n' +
+      'Send a message without a command and Ollama responds directly (free, local).\n' +
+      'Use a command to send to a specific agent:\n\n' +
+      '/ollama &lt;msg&gt; — Ollama (local)\n' +
+      '/codex &lt;msg&gt; — Codex CLI (OpenAI)\n' +
+      '/openrouter &lt;msg&gt; — OpenRouter API\n' +
+      '/claude &lt;msg&gt; — Claude Code (full tools)\n\n' +
+
+      '<b>Switch models</b>\n' +
+      '/model sonnet — Claude (opus/sonnet/haiku)\n' +
+      '/ollama model qwen3.5:35b-a3b — Ollama\n' +
+      '/openrouter model deepseek/deepseek-chat — OpenRouter\n' +
+      '/models — Show active model for each agent\n\n' +
+
+      '<b>Orchestrator</b>\n' +
+      '/orq — Toggle auto-routing on/off\n' +
+      'When ON, a lightweight model classifies your message and dispatches it to the best agent automatically.\n\n' +
+
+      '<b>Session</b>\n' +
       '/newchat — Start a new Claude session\n' +
-      '/respin — Reload recent context\n' +
-      '/voice — Toggle voice mode on/off\n' +
-      '/model — Switch model (opus/sonnet/haiku)\n' +
+      '/respin — Reload recent context after /newchat\n' +
+      '/ollama clear — Clear Ollama history\n' +
+      '/openrouter clear — Clear OpenRouter history\n\n' +
+
+      '<b>Other</b>\n' +
+      '/voice — Toggle voice mode\n' +
       '/memory — View recent memories\n' +
       '/forget — Clear session\n' +
       '/wa — WhatsApp messages\n' +
       '/slack — Slack messages\n' +
       '/dashboard — Web dashboard\n' +
-      '/stop — Stop current processing\n\n' +
-      'You can also send voice notes, photos, files, and videos.'
+      '/stop — Stop current processing',
+      { parse_mode: 'HTML' },
     );
   });
 
@@ -632,6 +846,151 @@ export function createBot(): Bot {
 
     chatModelOverride.set(chatIdStr, modelId);
     await ctx.reply(`Model changed: ${arg} (${modelId})`);
+  });
+
+  // /ollama — send message to Ollama or switch model
+  bot.command('ollama', async (ctx) => {
+    if (!isAuthorised(ctx.chat!.id)) return;
+    const chatIdStr = ctx.chat!.id.toString();
+    const arg = ctx.match?.trim() ?? '';
+
+    if (!arg) {
+      const model = chatOllamaModel.get(chatIdStr) ?? OLLAMA_MODEL;
+      const models = await ollamaListModels();
+      const list = models.length > 0 ? models.join(', ') : 'none found';
+      await ctx.reply(`Ollama model: ${model}\nAvailable: ${list}\n\nUsage:\n/ollama <message> — chat with Ollama\n/ollama model <name> — switch model`);
+      return;
+    }
+
+    // /ollama model <name> — switch model
+    if (arg.startsWith('model ')) {
+      const newModel = arg.slice(6).trim();
+      if (!newModel) {
+        await ctx.reply('Usage: /ollama model <name>');
+        return;
+      }
+      chatOllamaModel.set(chatIdStr, newModel);
+      await ctx.reply(`Ollama model changed: ${newModel}`);
+      return;
+    }
+
+    // /ollama clear — clear conversation history
+    if (arg === 'clear') {
+      ollamaHistory.delete(chatIdStr);
+      await ctx.reply('Ollama history cleared.');
+      return;
+    }
+
+    // /ollama <message> — send to Ollama
+    handleOllamaMessage(ctx, arg).catch((err) => logger.error({ err }, 'Ollama command error'));
+  });
+
+  // /claude — send message directly to Claude Agent SDK (full tools)
+  bot.command('claude', async (ctx) => {
+    if (!isAuthorised(ctx.chat!.id)) return;
+    const arg = ctx.match?.trim() ?? '';
+
+    if (!arg) {
+      const current = chatModelOverride.get(ctx.chat!.id.toString());
+      const currentLabel = current
+        ? Object.entries(AVAILABLE_MODELS).find(([, v]) => v === current)?.[0] ?? current
+        : DEFAULT_MODEL_LABEL + ' (default)';
+      await ctx.reply(`Claude Agent (full tools: bash, file edit, web search)\nModel: ${currentLabel}\n\nUsage: /claude <message>\n/model <name> to switch model`);
+      return;
+    }
+
+    // Send to Claude Agent SDK via handleMessage
+    handleMessage(ctx, arg).catch((err) => logger.error({ err }, 'Claude command error'));
+  });
+
+  // /codex — send message to Codex CLI
+  bot.command('codex', async (ctx) => {
+    if (!isAuthorised(ctx.chat!.id)) return;
+    const arg = ctx.match?.trim() ?? '';
+
+    if (!arg) {
+      const available = await codexAvailable();
+      await ctx.reply(`Codex CLI: ${available ? 'installed' : 'not found'}\n\nUsage: /codex <message>`);
+      return;
+    }
+
+    handleCodexMessage(ctx, arg).catch((err) => logger.error({ err }, 'Codex command error'));
+  });
+
+  // /openrouter — send message to OpenRouter or switch model
+  bot.command('openrouter', async (ctx) => {
+    if (!isAuthorised(ctx.chat!.id)) return;
+    const chatIdStr = ctx.chat!.id.toString();
+    const arg = ctx.match?.trim() ?? '';
+
+    if (!arg) {
+      const model = chatOpenrouterModel.get(chatIdStr) ?? OPENROUTER_MODEL;
+      const available = openrouterAvailable();
+      await ctx.reply(`OpenRouter: ${available ? 'configured' : 'no API key'}\nModel: ${model}\n\nUsage:\n/openrouter <message> — chat\n/openrouter model <name> — switch model`);
+      return;
+    }
+
+    // /openrouter model <name> — switch model
+    if (arg.startsWith('model ')) {
+      const newModel = arg.slice(6).trim();
+      if (!newModel) {
+        await ctx.reply('Usage: /openrouter model <name>');
+        return;
+      }
+      chatOpenrouterModel.set(chatIdStr, newModel);
+      await ctx.reply(`OpenRouter model changed: ${newModel}`);
+      return;
+    }
+
+    // /openrouter clear — clear conversation history
+    if (arg === 'clear') {
+      openrouterHistory.delete(chatIdStr);
+      await ctx.reply('OpenRouter history cleared.');
+      return;
+    }
+
+    // /openrouter <message> — send to OpenRouter
+    handleOpenrouterMessage(ctx, arg).catch((err) => logger.error({ err }, 'OpenRouter command error'));
+  });
+
+  // /models — show active model for each agent
+  bot.command('models', async (ctx) => {
+    if (!isAuthorised(ctx.chat!.id)) return;
+    const chatIdStr = ctx.chat!.id.toString();
+
+    const claudeModel = chatModelOverride.get(chatIdStr)
+      ? Object.entries(AVAILABLE_MODELS).find(([, v]) => v === chatModelOverride.get(chatIdStr))?.[0] ?? chatModelOverride.get(chatIdStr)
+      : DEFAULT_MODEL_LABEL + ' (default)';
+    const ollamaModel = chatOllamaModel.get(chatIdStr) ?? OLLAMA_MODEL;
+    const routerModel = OLLAMA_ROUTER_MODEL;
+    const orModel = chatOpenrouterModel.get(chatIdStr) ?? OPENROUTER_MODEL;
+    const orAvailable = openrouterAvailable();
+
+    const lines = [
+      `<b>Active Models</b>`,
+      ``,
+      `<b>Claude:</b> ${claudeModel}`,
+      `<b>Ollama:</b> ${ollamaModel}`,
+      `<b>Router:</b> ${routerModel}`,
+      `<b>OpenRouter:</b> ${orModel}${orAvailable ? '' : ' (no key)'}`,
+      `<b>Codex:</b> OpenAI (fixed)`,
+    ];
+
+    await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' });
+  });
+
+  // /orq — toggle orchestrator mode
+  bot.command('orq', async (ctx) => {
+    if (!isAuthorised(ctx.chat!.id)) return;
+    const chatIdStr = ctx.chat!.id.toString();
+
+    if (orchestratorEnabled.has(chatIdStr)) {
+      orchestratorEnabled.delete(chatIdStr);
+      await ctx.reply(`Orchestrator OFF\nMessages go straight to Ollama (${chatOllamaModel.get(chatIdStr) ?? OLLAMA_MODEL})`);
+    } else {
+      orchestratorEnabled.add(chatIdStr);
+      await ctx.reply(`Orchestrator ON (${OLLAMA_ROUTER_MODEL})\nMessages are classified and dispatched automatically`);
+    }
   });
 
   // /memory — show recent memories for this chat
@@ -749,7 +1108,7 @@ export function createBot(): Bot {
   });
 
   // Text messages — and any slash commands not owned by this bot (skills, e.g. /todo /gmail)
-  const OWN_COMMANDS = new Set(['/start', '/help', '/newchat', '/respin', '/voice', '/model', '/memory', '/forget', '/chatid', '/wa', '/slack', '/dashboard', '/stop']);
+  const OWN_COMMANDS = new Set(['/start', '/help', '/newchat', '/respin', '/voice', '/model', '/claude', '/ollama', '/codex', '/openrouter', '/models', '/orq', '/memory', '/forget', '/chatid', '/wa', '/slack', '/dashboard', '/stop']);
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text;
     const chatIdStr = ctx.chat!.id.toString();
@@ -906,11 +1265,17 @@ export function createBot(): Bot {
       }
     }
 
-    // Clear WA/Slack state and pass through to Claude
+    // Clear WA/Slack state
     if (state) waState.delete(chatIdStr);
     if (slkState) slackState.delete(chatIdStr);
     // Fire-and-forget so grammY can process /stop while agent runs
-    handleMessage(ctx, text).catch((err) => logger.error({ err }, 'Unhandled message error'));
+    if (orchestratorEnabled.has(chatIdStr)) {
+      // Orchestrator ON: classify and dispatch via lightweight model
+      handleRoutedMessage(ctx, text).catch((err) => logger.error({ err }, 'Unhandled message error'));
+    } else {
+      // Orchestrator OFF (default): straight to Ollama
+      handleOllamaMessage(ctx, text).catch((err) => logger.error({ err }, 'Unhandled message error'));
+    }
   });
 
   // Voice messages — real transcription via Groq Whisper
