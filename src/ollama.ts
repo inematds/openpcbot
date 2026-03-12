@@ -10,6 +10,13 @@ export interface OllamaChatResponse {
   done: boolean;
   total_duration?: number;
   eval_count?: number;
+  prompt_eval_count?: number;
+}
+
+export interface OllamaResult {
+  content: string;
+  promptTokens: number;
+  completionTokens: number;
 }
 
 const DEFAULT_URL = 'http://localhost:11434';
@@ -26,7 +33,7 @@ export async function ollamaChat(
   model: string,
   messages: OllamaMessage[],
   options?: { temperature?: number; timeout?: number },
-): Promise<string> {
+): Promise<OllamaResult> {
   const url = `${getOllamaUrl()}/api/chat`;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), options?.timeout ?? 300_000);
@@ -50,7 +57,11 @@ export async function ollamaChat(
     }
 
     const data = (await res.json()) as OllamaChatResponse;
-    return data.message.content;
+    return {
+      content: data.message.content,
+      promptTokens: data.prompt_eval_count ?? 0,
+      completionTokens: data.eval_count ?? 0,
+    };
   } finally {
     clearTimeout(timeoutId);
   }

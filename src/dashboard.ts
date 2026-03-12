@@ -205,7 +205,7 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       }
     });
 
-    // Include main bot too
+    // Include main bot process status
     const mainPidFile = path.join(STORE_DIR, 'claudeclaw.pid');
     let mainRunning = false;
     if (fs.existsSync(mainPidFile)) {
@@ -215,11 +215,19 @@ export function startDashboard(botApi?: Api<RawApi>): void {
         mainRunning = true;
       } catch { /* not running */ }
     }
-    const mainStats = getAgentTokenStats('main');
-    const allAgents = [
-      { id: 'main', name: 'Main', description: 'Primary ClaudeClaw bot', model: 'claude-opus-4-6', running: mainRunning, todayTurns: mainStats.todayTurns, todayCost: mainStats.todayCost },
-      ...agents,
-    ];
+
+    // Built-in agents with their own tracking
+    const builtInAgents = [
+      { id: 'claude', name: 'Claude', description: 'Claude Agent SDK (full tools)', model: 'claude-opus-4-6', running: mainRunning },
+      { id: 'ollama', name: 'Ollama', description: 'Local LLM (free)', model: 'qwen2.5:14b', running: mainRunning },
+      { id: 'openrouter', name: 'OpenRouter', description: 'OpenRouter API (multi-model)', model: 'various', running: mainRunning },
+      { id: 'codex', name: 'Codex', description: 'OpenAI Codex CLI', model: 'codex', running: mainRunning },
+    ].map((a) => {
+      const stats = getAgentTokenStats(a.id);
+      return { ...a, todayTurns: stats.todayTurns, todayCost: stats.todayCost };
+    });
+
+    const allAgents = [...builtInAgents, ...agents];
 
     return c.json({ agents: allAgents });
   });

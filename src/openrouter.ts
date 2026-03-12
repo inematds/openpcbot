@@ -16,6 +16,12 @@ interface OpenRouterResponse {
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
 }
 
+export interface OpenRouterResult {
+  content: string;
+  promptTokens: number;
+  completionTokens: number;
+}
+
 const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 function getApiKey(): string {
@@ -33,7 +39,7 @@ export async function openrouterChat(
   model: string,
   messages: OpenRouterMessage[],
   options?: { temperature?: number; timeout?: number },
-): Promise<string> {
+): Promise<OpenRouterResult> {
   const apiKey = getApiKey();
   if (!apiKey) throw new Error('OPENROUTER_API_KEY not set');
 
@@ -73,7 +79,11 @@ export async function openrouterChat(
       );
     }
 
-    return content;
+    return {
+      content,
+      promptTokens: data.usage?.prompt_tokens ?? 0,
+      completionTokens: data.usage?.completion_tokens ?? 0,
+    };
   } finally {
     clearTimeout(timeoutId);
   }

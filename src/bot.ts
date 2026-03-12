@@ -22,6 +22,7 @@ import { ollamaChat, ollamaListModels, ollamaHealthCheck, OllamaMessage } from '
 import { openrouterChat, openrouterAvailable, OpenRouterMessage } from './openrouter.js';
 import { runCodex, codexAvailable } from './codex.js';
 import { routeMessage, AgentTarget } from './router.js';
+import { resolveProject } from './project-resolver.js';
 import { clearSession, getRecentConversation, getRecentMemories, getSession, setSession, lookupWaChatId, saveWaMessageMap, saveTokenUsage } from './db.js';
 import { logger } from './logger.js';
 import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage } from './media.js';
@@ -319,20 +320,46 @@ async function handleOllamaMessage(ctx: Context, message: string): Promise<void>
     if (history.length === 0) {
       history.push({
         role: 'system',
-        content: 'You are a helpful assistant running inside ClaudeClaw, a multi-agent Telegram bot. You answer questions directly. If the user asks you to edit files, run commands, deploy code, or do anything that requires system tools, tell them to use /claude or /codex — those agents have full tool access. Keep responses concise.',
+        content: [
+          'You are a helpful assistant running inside ClaudeClaw, a multi-agent Telegram bot. You answer questions directly. Keep responses concise.',
+          '',
+          'Environment:',
+          '- All user projects live in /home/nmaldaner/projetos/ (120+ projects)',
+          '- You do NOT have file/bash access. For tasks requiring files, commands, code, or system operations, tell the user to use:',
+          '  /claude <msg> — Claude Code (full tools, bash, files, web search)',
+          '  /codex <msg> — Codex CLI (code tasks)',
+          '  /claude projeto <name> <msg> — work on a specific project',
+          '- You CAN answer questions, translate, explain concepts, brainstorm, and have conversations.',
+        ].join('\n'),
       });
     }
-    history.push({ role: 'user', content: message });
+
+    // Inject memory context into user message
+    const memCtx = await buildMemoryContext(chatIdStr, message);
+    const enrichedMessage = memCtx ? `${memCtx}\n\n${message}` : message;
+    history.push({ role: 'user', content: enrichedMessage });
     if (history.length > MAX_HISTORY) history = history.slice(-MAX_HISTORY);
 
-    const response = await ollamaChat(model, history);
-    history.push({ role: 'assistant', content: response });
+    const result = await ollamaChat(model, history);
+    history.push({ role: 'assistant', content: result.content });
     ollamaHistory.set(chatIdStr, history);
 
-    emitChatEvent({ type: 'assistant_message', chatId: chatIdStr, content: response, source: 'telegram' });
-    saveConversationTurn(chatIdStr, message, response, undefined, AGENT_ID);
+    emitChatEvent({ type: 'assistant_message', chatId: chatIdStr, content: result.content, source: 'telegram' });
+    saveConversationTurn(chatIdStr, message, result.content, undefined, 'ollama');
 
-    for (const part of splitMessage(formatForTelegram(response))) {
+    // Track Ollama token usage (cost=0 since it's local)
+    try {
+      saveTokenUsage(
+        chatIdStr, undefined,
+        result.promptTokens, result.completionTokens,
+        0, result.promptTokens + result.completionTokens,
+        0, false, 'ollama',
+      );
+    } catch (dbErr) {
+      logger.error({ err: dbErr }, 'Failed to save Ollama token usage');
+    }
+
+    for (const part of splitMessage(formatForTelegram(result.content))) {
       await ctx.reply(part, { parse_mode: 'HTML' });
     }
   } catch (err) {
@@ -364,17 +391,33 @@ async function handleOpenrouterMessage(ctx: Context, message: string): Promise<v
 
   try {
     let history = openrouterHistory.get(chatIdStr) ?? [];
-    history.push({ role: 'user', content: message });
+
+    // Inject memory context into user message
+    const memCtx = await buildMemoryContext(chatIdStr, message);
+    const enrichedMessage = memCtx ? `${memCtx}\n\n${message}` : message;
+    history.push({ role: 'user', content: enrichedMessage });
     if (history.length > MAX_HISTORY) history = history.slice(-MAX_HISTORY);
 
-    const response = await openrouterChat(model, history);
-    history.push({ role: 'assistant', content: response });
+    const result = await openrouterChat(model, history);
+    history.push({ role: 'assistant', content: result.content });
     openrouterHistory.set(chatIdStr, history);
 
-    emitChatEvent({ type: 'assistant_message', chatId: chatIdStr, content: response, source: 'telegram' });
-    saveConversationTurn(chatIdStr, message, response, undefined, AGENT_ID);
+    emitChatEvent({ type: 'assistant_message', chatId: chatIdStr, content: result.content, source: 'telegram' });
+    saveConversationTurn(chatIdStr, message, result.content, undefined, 'openrouter');
 
-    for (const part of splitMessage(formatForTelegram(response))) {
+    // Track OpenRouter token usage (cost estimated from token count)
+    try {
+      saveTokenUsage(
+        chatIdStr, undefined,
+        result.promptTokens, result.completionTokens,
+        0, result.promptTokens + result.completionTokens,
+        0, false, 'openrouter',
+      );
+    } catch (dbErr) {
+      logger.error({ err: dbErr }, 'Failed to save OpenRouter token usage');
+    }
+
+    for (const part of splitMessage(formatForTelegram(result.content))) {
       await ctx.reply(part, { parse_mode: 'HTML' });
     }
   } catch (err) {
@@ -390,7 +433,7 @@ async function handleOpenrouterMessage(ctx: Context, message: string): Promise<v
 /**
  * Handle a message via Codex CLI.
  */
-async function handleCodexMessage(ctx: Context, message: string): Promise<void> {
+async function handleCodexMessage(ctx: Context, message: string, cwd?: string): Promise<void> {
   const chatId = ctx.chat!.id;
   const chatIdStr = chatId.toString();
 
@@ -399,10 +442,23 @@ async function handleCodexMessage(ctx: Context, message: string): Promise<void> 
   setProcessing(chatIdStr, true);
 
   try {
-    const result = await runCodex(message, { cwd: process.cwd() });
+    const result = await runCodex(message, { cwd: cwd ?? process.cwd() });
 
     emitChatEvent({ type: 'assistant_message', chatId: chatIdStr, content: result.text, source: 'telegram' });
-    saveConversationTurn(chatIdStr, message, result.text, undefined, AGENT_ID);
+    saveConversationTurn(chatIdStr, message, result.text, undefined, 'codex');
+
+    // Track Codex usage (tokens unknown from CLI, log turn only)
+    try {
+      const approxTokens = Math.ceil(result.text.length / 4);
+      saveTokenUsage(
+        chatIdStr, undefined,
+        0, approxTokens,
+        0, approxTokens,
+        0, false, 'codex',
+      );
+    } catch (dbErr) {
+      logger.error({ err: dbErr }, 'Failed to save Codex token usage');
+    }
 
     for (const part of splitMessage(formatForTelegram(result.text))) {
       await ctx.reply(part, { parse_mode: 'HTML' });
@@ -439,7 +495,7 @@ async function handleRoutedMessage(ctx: Context, message: string, forceVoiceRepl
     if (decision.action === 'respond' && decision.response) {
       // Ollama responded directly
       emitChatEvent({ type: 'assistant_message', chatId: chatIdStr, content: decision.response, source: 'telegram' });
-      if (!skipLog) saveConversationTurn(chatIdStr, message, decision.response, undefined, AGENT_ID);
+      if (!skipLog) saveConversationTurn(chatIdStr, message, decision.response, undefined, 'ollama');
       for (const part of splitMessage(formatForTelegram(decision.response))) {
         await ctx.reply(part, { parse_mode: 'HTML' });
       }
@@ -568,7 +624,7 @@ async function handleMessage(ctx: Context, message: string, forceVoiceReply = fa
     // Save conversation turn to memory (including full log).
     // Skip logging for synthetic messages like /respin to avoid self-referential growth.
     if (!skipLog) {
-      saveConversationTurn(chatIdStr, message, rawResponse, result.newSessionId ?? sessionId, AGENT_ID);
+      saveConversationTurn(chatIdStr, message, rawResponse, result.newSessionId ?? sessionId, 'claude');
     }
 
     // Emit assistant response to SSE clients
@@ -630,7 +686,7 @@ async function handleMessage(ctx: Context, message: string, forceVoiceReply = fa
           result.usage.lastCallInputTokens,
           result.usage.totalCostUsd,
           result.usage.didCompact,
-          AGENT_ID,
+          'claude',
         );
       } catch (dbErr) {
         logger.error({ err: dbErr }, 'Failed to save token usage');
@@ -705,13 +761,20 @@ export function createBot(): Bot {
     return ctx.reply(
       '<b>ClaudeClaw</b>\n\n' +
 
-      '<b>Agents</b>\n' +
+      '<b>Built-in Agents</b>\n' +
       'Send a message without a command and Ollama responds directly (free, local).\n' +
       'Use a command to send to a specific agent:\n\n' +
-      '/ollama &lt;msg&gt; — Ollama (local)\n' +
-      '/codex &lt;msg&gt; — Codex CLI (OpenAI)\n' +
-      '/openrouter &lt;msg&gt; — OpenRouter API\n' +
-      '/claude &lt;msg&gt; — Claude Code (full tools)\n\n' +
+      '/ollama &lt;msg&gt; — Ollama local LLM (free)\n' +
+      '/claude &lt;msg&gt; — Claude Code (full tools, bash, files, web)\n' +
+      '/codex &lt;msg&gt; — Codex CLI (OpenAI, full-auto)\n' +
+      '/openrouter &lt;msg&gt; — OpenRouter API (multi-model)\n\n' +
+
+      '<b>Specialized Agents</b>\n' +
+      'Dedicated agents with their own Telegram bots:\n' +
+      '• Comms — email, Slack, WhatsApp, DMs\n' +
+      '• Content — YouTube, LinkedIn, content calendar\n' +
+      '• Ops — calendar, billing, admin, tasks\n' +
+      '• Research — web research, competitive intel\n\n' +
 
       '<b>Switch models</b>\n' +
       '/model sonnet — Claude (opus/sonnet/haiku)\n' +
@@ -729,13 +792,16 @@ export function createBot(): Bot {
       '/ollama clear — Clear Ollama history\n' +
       '/openrouter clear — Clear OpenRouter history\n\n' +
 
+      '<b>Monitoring</b>\n' +
+      '/dashboard — Web dashboard (usage per agent)\n' +
+      '/models — Active models for each agent\n\n' +
+
       '<b>Other</b>\n' +
       '/voice — Toggle voice mode\n' +
       '/memory — View recent memories\n' +
       '/forget — Clear session\n' +
       '/wa — WhatsApp messages\n' +
       '/slack — Slack messages\n' +
-      '/dashboard — Web dashboard\n' +
       '/stop — Stop current processing',
       { parse_mode: 'HTML' },
     );
@@ -899,8 +965,19 @@ export function createBot(): Bot {
       return;
     }
 
-    // Send to Claude Agent SDK via handleMessage
-    handleMessage(ctx, arg).catch((err) => logger.error({ err }, 'Claude command error'));
+    // Resolve project reference and prepend path context for Claude
+    const project = resolveProject(arg);
+    if (project && project.found) {
+      const contextMsg = `[Project context: working directory is ${project.cwd}]\n\n${project.cleanedMessage}`;
+      await ctx.reply(`Project: ${project.cwd}`);
+      handleMessage(ctx, contextMsg).catch((err) => logger.error({ err }, 'Claude command error'));
+    } else if (project && !project.found) {
+      // Project doesn't exist yet -- pass to Claude so it can create it or understand intent
+      const contextMsg = `[Project "${project.name}" does not exist yet. Projects directory is /home/nmaldaner/projetos/. The user may want to create it.]\n\n${arg}`;
+      handleMessage(ctx, contextMsg).catch((err) => logger.error({ err }, 'Claude command error'));
+    } else {
+      handleMessage(ctx, arg).catch((err) => logger.error({ err }, 'Claude command error'));
+    }
   });
 
   // /codex — send message to Codex CLI
@@ -914,7 +991,17 @@ export function createBot(): Bot {
       return;
     }
 
-    handleCodexMessage(ctx, arg).catch((err) => logger.error({ err }, 'Codex command error'));
+    const project = resolveProject(arg);
+    if (project && project.found) {
+      await ctx.reply(`Project: ${project.cwd}`);
+      handleCodexMessage(ctx, project.cleanedMessage, project.cwd).catch((err) => logger.error({ err }, 'Codex command error'));
+    } else if (project && !project.found) {
+      // Project doesn't exist -- pass to Codex in projects root so it can create it
+      handleCodexMessage(ctx, arg, '/home/nmaldaner/projetos').catch((err) => logger.error({ err }, 'Codex command error'));
+    } else {
+      // Default cwd to projects root so Codex can see all projects
+      handleCodexMessage(ctx, arg, '/home/nmaldaner/projetos').catch((err) => logger.error({ err }, 'Codex command error'));
+    }
   });
 
   // /openrouter — send message to OpenRouter or switch model
@@ -1085,6 +1172,7 @@ export function createBot(): Bot {
   // /dashboard — send a clickable link to the web dashboard
   bot.command('dashboard', async (ctx) => {
     if (!isAuthorised(ctx.chat!.id)) return;
+    logger.info('Dashboard command received');
     if (!DASHBOARD_TOKEN) {
       await ctx.reply('Dashboard not configured. Set DASHBOARD_TOKEN in .env and restart.');
       return;
@@ -1092,7 +1180,7 @@ export function createBot(): Bot {
     const chatIdStr = ctx.chat!.id.toString();
     const base = DASHBOARD_URL || `http://localhost:${DASHBOARD_PORT}`;
     const url = `${base}/?token=${DASHBOARD_TOKEN}&chatId=${chatIdStr}`;
-    await ctx.reply(`<a href="${url}">Open Dashboard</a>`, { parse_mode: 'HTML' });
+    await ctx.reply(`Dashboard: ${url}`, { parse_mode: undefined });
   });
 
   // /stop — interrupt the current agent query
@@ -1112,6 +1200,7 @@ export function createBot(): Bot {
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text;
     const chatIdStr = ctx.chat!.id.toString();
+    console.log(`[MSG] ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} chat=${chatIdStr} text=${text.slice(0, 50)}`);
 
     if (text.startsWith('/')) {
       const cmd = text.split(/[\s@]/)[0].toLowerCase();
@@ -1480,7 +1569,7 @@ export async function processMessageFromDashboard(
     const rawResponse = result.text?.trim() || 'Done.';
 
     // Save conversation turn
-    saveConversationTurn(chatIdStr, text, rawResponse, result.newSessionId ?? sessionId, AGENT_ID);
+    saveConversationTurn(chatIdStr, text, rawResponse, result.newSessionId ?? sessionId, 'claude');
 
     // Emit assistant response to SSE clients
     emitChatEvent({ type: 'assistant_message', chatId: chatIdStr, content: rawResponse, source: 'dashboard' });
@@ -1506,7 +1595,7 @@ export async function processMessageFromDashboard(
           result.usage.lastCallInputTokens,
           result.usage.totalCostUsd,
           result.usage.didCompact,
-          AGENT_ID,
+          'claude',
         );
       } catch (dbErr) {
         logger.error({ err: dbErr }, 'Failed to save token usage');

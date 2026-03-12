@@ -6,6 +6,20 @@ export interface CodexResult {
   exitCode: number | null;
 }
 
+const SIGKILL_DELAY = 5_000; // 5s after SIGTERM, force kill
+
+function forceKill(proc: ReturnType<typeof spawn>): void {
+  proc.kill('SIGTERM');
+  const killTimer = setTimeout(() => {
+    try {
+      proc.kill('SIGKILL');
+    } catch {
+      // already dead
+    }
+  }, SIGKILL_DELAY);
+  killTimer.unref();
+}
+
 /**
  * Run a message through the Codex CLI (OpenAI) in full-auto mode.
  * Returns the stdout output.
@@ -15,10 +29,10 @@ export async function runCodex(
   options?: { cwd?: string; timeout?: number; abortSignal?: AbortSignal },
 ): Promise<CodexResult> {
   const cwd = options?.cwd ?? process.cwd();
-  const timeout = options?.timeout ?? 300_000; // 5 min default
+  const timeout = options?.timeout ?? 900_000; // 15 min default
 
   return new Promise((resolve, reject) => {
-    const proc = spawn('codex', ['--full-auto', message], {
+    const proc = spawn('codex', ['exec', '--full-auto', message], {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env },
@@ -26,6 +40,7 @@ export async function runCodex(
 
     let stdout = '';
     let stderr = '';
+    let settled = false;
 
     proc.stdout.on('data', (data: Buffer) => {
       stdout += data.toString();
@@ -36,18 +51,29 @@ export async function runCodex(
     });
 
     const timer = setTimeout(() => {
-      proc.kill('SIGTERM');
-      reject(new Error('Codex timed out'));
+      logger.warn({ pid: proc.pid, cwd }, 'Codex timed out, killing');
+      forceKill(proc);
+      if (!settled) {
+        settled = true;
+        const partial = stdout.trim() || stderr.trim();
+        resolve({
+          text: partial ? `(timeout — partial output)\n\n${partial}` : 'Codex timed out with no output',
+          exitCode: null,
+        });
+      }
     }, timeout);
+    timer.unref();
 
     if (options?.abortSignal) {
       options.abortSignal.addEventListener('abort', () => {
-        proc.kill('SIGTERM');
+        forceKill(proc);
       }, { once: true });
     }
 
     proc.on('close', (code) => {
       clearTimeout(timer);
+      if (settled) return;
+      settled = true;
       if (stderr && code !== 0) {
         logger.warn({ exitCode: code, stderr: stderr.slice(0, 500) }, 'Codex stderr');
       }
@@ -58,6 +84,8 @@ export async function runCodex(
 
     proc.on('error', (err) => {
       clearTimeout(timer);
+      if (settled) return;
+      settled = true;
       reject(new Error(`Codex failed to start: ${err.message}`));
     });
   });

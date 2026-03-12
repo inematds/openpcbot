@@ -44,7 +44,8 @@ export async function routeMessage(
   ];
 
   try {
-    const raw = await ollamaChat(routerModel, messages, { temperature: 0.1, timeout: 30_000 });
+    const result = await ollamaChat(routerModel, messages, { temperature: 0.1, timeout: 30_000 });
+    const raw = result.content;
 
     // Extract JSON from response (handle markdown wrapping)
     const jsonMatch = raw.match(/\{[\s\S]*\}/);

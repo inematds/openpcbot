@@ -43,11 +43,10 @@ Execute. Don't explain what you're about to do — just do it. When [YOUR NAME] 
 
 - **All global Claude Code skills** (`~/.claude/skills/`) are available — invoke them when relevant
 - **Tools available**: Bash, file system, web search, browser automation, and all MCP servers configured in Claude settings
-- **This project** lives at the directory where `CLAUDE.md` is located — use `git rev-parse --show-toplevel` to find it if needed
-- **Obsidian vault**: `[YOUR_OBSIDIAN_VAULT_PATH]` — use Read/Glob/Grep tools to access notes
-- **Gemini API key**: stored in this project's `.env` as `GOOGLE_API_KEY` — use this when video understanding is needed. When [YOUR NAME] sends a video file, use the `gemini-api-dev` skill with this key to analyze it.
-
-<!-- Add any other tools, directories, or services relevant to your setup here -->
+- **This project** (ClaudeClaw bot) lives at `/home/nmaldaner/projetos/openclaw3`
+- **All user projects** live under `/home/nmaldaner/projetos/`. When the user mentions "projetos", "nossos projetos", or asks about projects, list/search in that directory, NOT just the current working directory. Example: `ls /home/nmaldaner/projetos/` to see all projects.
+- **To work on a specific project**, `cd` into its directory first. Example: if user says "projeto voos", work in `/home/nmaldaner/projetos/voos/`.
+- **Gemini API key**: stored in this project's `.env` as `GOOGLE_API_KEY` — use this when video understanding is needed.
 
 ## Available Skills (invoke automatically when relevant)
 

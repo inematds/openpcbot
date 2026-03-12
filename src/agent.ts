@@ -115,6 +115,9 @@ export async function runAgent(
   const secrets = readEnvFile(['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY']);
 
   const sdkEnv: Record<string, string | undefined> = { ...process.env };
+  // Clear CLAUDECODE to prevent the subprocess from refusing to start
+  // (set when bot is launched from inside a Claude Code session)
+  delete sdkEnv.CLAUDECODE;
   if (secrets.CLAUDE_CODE_OAUTH_TOKEN) {
     sdkEnv.CLAUDE_CODE_OAUTH_TOKEN = secrets.CLAUDE_CODE_OAUTH_TOKEN;
   }
@@ -133,6 +136,20 @@ export async function runAgent(
   // Refresh typing indicator on an interval while Claude works.
   // Telegram's "typing..." action expires after ~5s.
   const typingInterval = setInterval(onTyping, 4000);
+
+  // Safety: ensure we always have an abort controller for the watchdog
+  const effectiveAbort = abortController ?? new AbortController();
+
+  // Timeout: if no events arrive for 5 minutes, abort the query
+  const AGENT_TIMEOUT = 300_000;
+  let lastEventAt = Date.now();
+  const watchdog = setInterval(() => {
+    if (Date.now() - lastEventAt > AGENT_TIMEOUT) {
+      logger.warn({ elapsed: Date.now() - lastEventAt }, 'Agent query timed out (no events), aborting');
+      effectiveAbort.abort();
+    }
+  }, 30_000);
+  watchdog.unref();
 
   try {
     logger.info(
@@ -164,10 +181,11 @@ export async function runAgent(
         ...(model ? { model } : {}),
 
         // Abort support — signals the SDK to kill the subprocess
-        ...(abortController ? { abortController } : {}),
+        abortController: effectiveAbort,
       },
     })) {
       const ev = event as Record<string, unknown>;
+      lastEventAt = Date.now();
 
       if (ev['type'] === 'system' && ev['subtype'] === 'init') {
         newSessionId = ev['session_id'] as string;
@@ -256,13 +274,14 @@ export async function runAgent(
       }
     }
   } catch (err) {
-    if (abortController?.signal.aborted) {
+    if (effectiveAbort.signal.aborted) {
       logger.info('Agent query aborted by user');
       return { text: null, newSessionId, usage, aborted: true };
     }
     throw err;
   } finally {
     clearInterval(typingInterval);
+    clearInterval(watchdog);
   }
 
   return { text: resultText, newSessionId, usage };
