@@ -1,5 +1,7 @@
 # OpenPCBot
 
+![OpenPCBot Banner](assets/banner.jpg)
+
 Bot Telegram pessoal rodando Claude Code CLI na maquina local, com sistema multi-agente (Ollama, Codex, OpenRouter), orquestrador inteligente, e segundo cerebro (vault de notas).
 
 Baseado no [ClaudeClaw](https://github.com/earlyaidopters/claudeclaw). Guia completo do upstream em [CLAUDECLAW_GUIDE.md](./CLAUDECLAW_GUIDE.md).
