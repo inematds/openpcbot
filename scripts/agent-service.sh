@@ -20,7 +20,7 @@ if [ -z "$ACTION" ] || [ -z "$AGENT_ID" ]; then
   exit 1
 fi
 
-SERVICE_NAME="com.claudeclaw.agent-${AGENT_ID}"
+SERVICE_NAME="com.openpcbot.agent-${AGENT_ID}"
 
 if [ "$(uname)" = "Darwin" ]; then
   # macOS: launchd plist

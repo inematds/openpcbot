@@ -148,7 +148,7 @@ function createSchema(database: Database.Database): void {
 
 export function initDatabase(): void {
   fs.mkdirSync(STORE_DIR, { recursive: true });
-  const dbPath = path.join(STORE_DIR, 'claudeclaw.db');
+  const dbPath = path.join(STORE_DIR, 'openpcbot.db');
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   createSchema(db);

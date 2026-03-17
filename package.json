@@ -1,5 +1,5 @@
 {
-  "name": "claudeclaw",
+  "name": "openpcbot",
   "version": "2.0.0",
   "description": "Your personal Claude Code assistant, delivered to your phone via Telegram",
   "type": "module",

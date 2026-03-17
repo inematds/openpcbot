@@ -140,7 +140,7 @@ async function main() {
   // Service status
   if (process.platform === 'darwin') {
     try {
-      const output = execSync('launchctl list com.claudeclaw.app', {
+      const output = execSync('launchctl list com.openpcbot.app', {
         stdio: 'pipe',
       })
         .toString()
@@ -153,7 +153,7 @@ async function main() {
         let pid = '';
         for (const line of lines) {
           const parts = line.split('\t');
-          if (parts.length >= 3 && parts[2] === 'com.claudeclaw.app') {
+          if (parts.length >= 3 && parts[2] === 'com.openpcbot.app') {
             pid = parts[0].trim();
             break;
           }
@@ -169,7 +169,7 @@ async function main() {
     }
   } else if (process.platform === 'linux') {
     try {
-      const output = execSync('systemctl --user is-active claudeclaw', {
+      const output = execSync('systemctl --user is-active openpcbot', {
         stdio: 'pipe',
       }).toString().trim();
       if (output === 'active') {
@@ -182,7 +182,7 @@ async function main() {
     }
   } else {
     try {
-      execSync('pm2 describe claudeclaw', { stdio: 'pipe' });
+      execSync('pm2 describe openpcbot', { stdio: 'pipe' });
       ok('Service: running (PM2)');
     } catch {
       warn('Service: not detected (check PM2 or start manually)');
@@ -190,7 +190,7 @@ async function main() {
   }
 
   // Memory DB
-  const dbPath = path.join(PROJECT_ROOT, 'store', 'claudeclaw.db');
+  const dbPath = path.join(PROJECT_ROOT, 'store', 'openpcbot.db');
   if (fs.existsSync(dbPath)) {
     try {
       const db = new Database(dbPath, { readonly: true });

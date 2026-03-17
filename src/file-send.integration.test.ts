@@ -17,7 +17,7 @@ import { extractFileMarkers } from './bot.js';
 
 // ── Helper: create a temp file with known content ───────────────────
 function createTempFile(filename: string, content: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'claudeclaw-test-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openpcbot-test-'));
   const filePath = path.join(dir, filename);
   fs.writeFileSync(filePath, content);
   return filePath;
@@ -190,7 +190,7 @@ describe('file sending: real Telegram API', () => {
   let tmpFile: string;
 
   beforeEach(() => {
-    tmpFile = createTempFile('claudeclaw-test.txt', `ClaudeClaw file send test\nTimestamp: ${new Date().toISOString()}\nThis file was sent by an automated integration test.`);
+    tmpFile = createTempFile('openpcbot-test.txt', `OpenPCBot file send test\nTimestamp: ${new Date().toISOString()}\nThis file was sent by an automated integration test.`);
   });
 
   afterEach(() => {
@@ -202,7 +202,7 @@ describe('file sending: real Telegram API', () => {
     // the same mechanism Grammy uses under the hood.
     const formData = new FormData();
     formData.append('chat_id', chatId);
-    formData.append('document', new Blob([fs.readFileSync(tmpFile)]), 'claudeclaw-test.txt');
+    formData.append('document', new Blob([fs.readFileSync(tmpFile)]), 'openpcbot-test.txt');
     formData.append('caption', 'Integration test: file sending works');
 
     const res = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
@@ -213,7 +213,7 @@ describe('file sending: real Telegram API', () => {
     const json = await res.json() as { ok: boolean; result?: { document?: { file_name: string } }; description?: string };
 
     expect(json.ok).toBe(true);
-    expect(json.result?.document?.file_name).toBe('claudeclaw-test.txt');
+    expect(json.result?.document?.file_name).toBe('openpcbot-test.txt');
   }, 15000);
 
   it.skipIf(!canRunRealTests)('sends a real PDF via Telegram sendDocument API', async () => {
@@ -233,11 +233,11 @@ startxref
 206
 %%EOF`;
 
-    const pdfFile = createTempFile('claudeclaw-test.pdf', pdfContent);
+    const pdfFile = createTempFile('openpcbot-test.pdf', pdfContent);
     try {
       const formData = new FormData();
       formData.append('chat_id', chatId);
-      formData.append('document', new Blob([fs.readFileSync(pdfFile)]), 'claudeclaw-test.pdf');
+      formData.append('document', new Blob([fs.readFileSync(pdfFile)]), 'openpcbot-test.pdf');
       formData.append('caption', 'Integration test: PDF sending works');
 
       const res = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
@@ -248,7 +248,7 @@ startxref
       const json = await res.json() as { ok: boolean; result?: { document?: { file_name: string; mime_type: string } } };
 
       expect(json.ok).toBe(true);
-      expect(json.result?.document?.file_name).toBe('claudeclaw-test.pdf');
+      expect(json.result?.document?.file_name).toBe('openpcbot-test.pdf');
     } finally {
       cleanupTempFile(pdfFile);
     }
@@ -257,7 +257,7 @@ startxref
   it.skipIf(!canRunRealTests)('returns error for nonexistent file (sanity check)', async () => {
     // This tests that our code correctly checks file existence before calling the API.
     // If we skip the check, the API would error. But we handle it gracefully.
-    const fakePath = '/tmp/claudeclaw-nonexistent-test-file.pdf';
+    const fakePath = '/tmp/openpcbot-nonexistent-test-file.pdf';
     expect(fs.existsSync(fakePath)).toBe(false);
 
     // Simulate the bot's behavior
@@ -297,7 +297,7 @@ startxref
     const json = await res.json() as { ok: boolean; result?: { document?: { file_name: string }; caption?: string } };
 
     expect(json.ok).toBe(true);
-    expect(json.result?.document?.file_name).toBe('claudeclaw-test.txt');
+    expect(json.result?.document?.file_name).toBe('openpcbot-test.txt');
     expect(json.result?.caption).toBe('Automated test file');
   }, 15000);
 });

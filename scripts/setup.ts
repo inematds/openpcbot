@@ -560,7 +560,7 @@ async function main() {
   } else {
     section('Auto-start');
     info('Unknown platform. Start manually: npm start');
-    info('Or use PM2: pm2 start dist/index.js --name claudeclaw && pm2 save');
+    info('Or use PM2: pm2 start dist/index.js --name openpcbot && pm2 save');
   }
 
   // ── macOS permissions warning ──────────────────────────────────────────
@@ -653,9 +653,9 @@ async function main() {
   console.log(`  ${c.cyan}npm run status${c.reset}`);
   console.log();
   if (PLATFORM === 'darwin') {
-    info('Logs: tail -f /tmp/claudeclaw.log');
+    info('Logs: tail -f /tmp/openpcbot.log');
   } else if (PLATFORM === 'linux') {
-    info('Logs: journalctl --user -u claudeclaw -f');
+    info('Logs: journalctl --user -u openpcbot -f');
   }
   console.log();
   info('Edit CLAUDE.md any time to change personality, add context, or update skills.');
@@ -667,7 +667,7 @@ async function main() {
 async function setupMacOS() {
   section('Auto-start (macOS)');
 
-  const dest = path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.claudeclaw.app.plist');
+  const dest = path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.openpcbot.app.plist');
   const installed = fs.existsSync(dest);
 
   if (installed) {
@@ -685,7 +685,7 @@ async function setupMacOS() {
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.claudeclaw.app</string>
+  <key>Label</key><string>com.openpcbot.app</string>
   <key>ProgramArguments</key>
   <array>
     <string>${process.execPath}</string>
@@ -695,8 +695,8 @@ async function setupMacOS() {
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>5</integer>
-  <key>StandardOutPath</key><string>/tmp/claudeclaw.log</string>
-  <key>StandardErrorPath</key><string>/tmp/claudeclaw.err</string>
+  <key>StandardOutPath</key><string>/tmp/openpcbot.log</string>
+  <key>StandardErrorPath</key><string>/tmp/openpcbot.err</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>NODE_ENV</key><string>production</string>
@@ -709,7 +709,7 @@ async function setupMacOS() {
     fs.writeFileSync(dest, plist, 'utf-8');
     execSync(`launchctl load "${dest}"`, { stdio: 'pipe' });
     s.stop('ok', 'Service installed — starts automatically on login');
-    info('Logs: tail -f /tmp/claudeclaw.log');
+    info('Logs: tail -f /tmp/openpcbot.log');
   } catch {
     s.stop('warn', 'Could not install automatically');
     info(`Manual install: launchctl load "${dest}"`);
@@ -723,14 +723,14 @@ async function setupLinux() {
   const install = await confirm('Install as a systemd user service?');
   if (!install) {
     info('Start manually: npm start');
-    info('Or: pm2 start dist/index.js --name claudeclaw && pm2 save');
+    info('Or: pm2 start dist/index.js --name openpcbot && pm2 save');
     return;
   }
 
   const s = spinner('Installing systemd service...');
   try {
     const serviceDir = path.join(os.homedir(), '.config', 'systemd', 'user');
-    const servicePath = path.join(serviceDir, 'claudeclaw.service');
+    const servicePath = path.join(serviceDir, 'openpcbot.service');
     const service = `[Unit]
 Description=OpenPCBot Telegram Bot
 After=network.target
@@ -752,10 +752,10 @@ WantedBy=default.target
     fs.mkdirSync(serviceDir, { recursive: true });
     fs.writeFileSync(servicePath, service, 'utf-8');
     execSync('systemctl --user daemon-reload', { stdio: 'pipe' });
-    execSync('systemctl --user enable claudeclaw', { stdio: 'pipe' });
-    execSync('systemctl --user start claudeclaw', { stdio: 'pipe' });
+    execSync('systemctl --user enable openpcbot', { stdio: 'pipe' });
+    execSync('systemctl --user start openpcbot', { stdio: 'pipe' });
     s.stop('ok', `Service installed at ${servicePath}`);
-    info('Logs: journalctl --user -u claudeclaw -f');
+    info('Logs: journalctl --user -u openpcbot -f');
   } catch {
     s.stop('warn', 'Could not install automatically');
     info('See README.md for manual systemd setup instructions.');
@@ -774,7 +774,7 @@ function setupWindows() {
   console.log();
   info('Option B — PM2 (native Windows):');
   console.log(`  ${c.cyan}npm install -g pm2${c.reset}`);
-  console.log(`  ${c.cyan}pm2 start dist/index.js --name claudeclaw${c.reset}`);
+  console.log(`  ${c.cyan}pm2 start dist/index.js --name openpcbot${c.reset}`);
   console.log(`  ${c.cyan}pm2 save${c.reset}`);
   console.log(`  ${c.cyan}pm2 startup${c.reset}  ${c.gray}# follow the instructions it prints${c.reset}`);
 }

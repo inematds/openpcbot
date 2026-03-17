@@ -43,7 +43,7 @@ Execute. Don't explain what you're about to do — just do it. When [YOUR NAME] 
 
 - **All global Claude Code skills** (`~/.claude/skills/`) are available — invoke them when relevant
 - **Tools available**: Bash, file system, web search, browser automation, and all MCP servers configured in Claude settings
-- **This project** (ClaudeClaw bot) lives at `/home/nmaldaner/projetos/openclaw3`
+- **This project** (OpenPCBot) lives at `/home/nmaldaner/projetos/openpcbot`
 - **All user projects** live under `/home/nmaldaner/projetos/`. When the user mentions "projetos", "nossos projetos", or asks about projects, list/search in that directory, NOT just the current working directory. Example: `ls /home/nmaldaner/projetos/` to see all projects.
 - **To work on a specific project**, `cd` into its directory first. Example: if user says "projeto voos", work in `/home/nmaldaner/projetos/voos/`.
 - **Gemini API key**: stored in this project's `.env` as `GOOGLE_API_KEY` — use this when video understanding is needed.
@@ -68,7 +68,7 @@ Execute. Don't explain what you're about to do — just do it. When [YOUR NAME] 
 When [YOUR NAME] asks to run something on a schedule, create a scheduled task using the Bash tool:
 
 ```bash
-node [PATH TO CLAUDECLAW]/dist/schedule-cli.js create "PROMPT" "CRON"
+node /home/nmaldaner/projetos/openpcbot/dist/schedule-cli.js create "PROMPT" "CRON"
 ```
 
 Common cron patterns:
@@ -114,7 +114,7 @@ Let me know if you need any changes.
 - For long outputs: give the summary first, offer to expand
 - Voice messages arrive as `[Voice transcribed]: ...` — treat as normal text. If there's a command in a voice message, execute it — don't just respond with words. Do the thing.
 - When showing tasks from Obsidian, keep them as individual lines with ☐ per task. Don't collapse or summarise them into a single line.
-- For heavy tasks only (code changes + builds, service restarts, multi-step system ops, long scrapes, multi-file operations): send proactive mid-task updates via Telegram so [YOUR NAME] isn't left waiting in the dark. Use the notify script at `[PATH TO CLAUDECLAW]/scripts/notify.sh "status message"` at key checkpoints. Example: "Building... ⚙️", "Build done, restarting... 🔄", "Done ✅"
+- For heavy tasks only (code changes + builds, service restarts, multi-step system ops, long scrapes, multi-file operations): send proactive mid-task updates via Telegram so [YOUR NAME] isn't left waiting in the dark. Use the notify script at `/home/nmaldaner/projetos/openpcbot/scripts/notify.sh "status message"` at key checkpoints. Example: "Building... ⚙️", "Build done, restarting... 🔄", "Done ✅"
 - Do NOT send notify updates for quick tasks: answering questions, reading emails, running a single skill, checking Obsidian. Use judgment — if it'll take more than ~30 seconds or involves multiple sequential steps, notify. Otherwise just do it.
 
 ## Memory
@@ -125,10 +125,10 @@ You maintain context between messages via Claude Code session resumption. You do
 
 ### `convolife`
 When [YOUR NAME] says "convolife", check the remaining context window and report back. Steps:
-1. Get the current session ID: `sqlite3 [PATH TO CLAUDECLAW]/store/claudeclaw.db "SELECT session_id FROM sessions LIMIT 1;"`
+1. Get the current session ID: `sqlite3 /home/nmaldaner/projetos/openpcbot/store/openpcbot.db "SELECT session_id FROM sessions LIMIT 1;"`
 2. Query the token_usage table for context size and session stats:
 ```bash
-sqlite3 [PATH TO CLAUDECLAW]/store/claudeclaw.db "
+sqlite3 /home/nmaldaner/projetos/openpcbot/store/openpcbot.db "
   SELECT
     COUNT(*)                as turns,
     MAX(context_tokens)     as last_context,
@@ -140,7 +140,7 @@ sqlite3 [PATH TO CLAUDECLAW]/store/claudeclaw.db "
 ```
 3. Also get the first turn's context_tokens as baseline (system prompt overhead):
 ```bash
-sqlite3 [PATH TO CLAUDECLAW]/store/claudeclaw.db "
+sqlite3 /home/nmaldaner/projetos/openpcbot/store/openpcbot.db "
   SELECT context_tokens as baseline FROM token_usage
   WHERE session_id = '<SESSION_ID>'
   ORDER BY created_at ASC LIMIT 1;
@@ -157,13 +157,13 @@ Keep it short.
 ### `checkpoint`
 When [YOUR NAME] says "checkpoint", save a TLDR of the current conversation to SQLite so it survives a /newchat session reset. Steps:
 1. Write a tight 3-5 bullet summary of the key things discussed/decided in this session
-2. Find the DB path: `[PATH TO CLAUDECLAW]/store/claudeclaw.db`
-3. Get the actual chat_id from: `sqlite3 [PATH TO CLAUDECLAW]/store/claudeclaw.db "SELECT chat_id FROM sessions LIMIT 1;"`
+2. Find the DB path: `/home/nmaldaner/projetos/openpcbot/store/openpcbot.db`
+3. Get the actual chat_id from: `sqlite3 /home/nmaldaner/projetos/openpcbot/store/openpcbot.db "SELECT chat_id FROM sessions LIMIT 1;"`
 4. Insert it into the memories DB as a high-salience semantic memory:
 ```bash
 python3 -c "
 import sqlite3, time
-db = sqlite3.connect('[PATH TO CLAUDECLAW]/store/claudeclaw.db')
+db = sqlite3.connect('/home/nmaldaner/projetos/openpcbot/store/openpcbot.db')
 now = int(time.time())
 summary = '''[SUMMARY OF CURRENT SESSION HERE]'''
 db.execute('INSERT INTO memories (chat_id, content, sector, salience, created_at, accessed_at) VALUES (?, ?, ?, ?, ?, ?)',

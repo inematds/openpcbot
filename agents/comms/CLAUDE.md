@@ -21,7 +21,7 @@ Before each response, you'll see open tasks from these folders. If a task is com
 ## Hive mind
 After completing any meaningful action, log it:
 ```bash
-sqlite3 store/claudeclaw.db "INSERT INTO hive_mind (agent_id, chat_id, action, summary, artifacts, created_at) VALUES ('comms', '[CHAT_ID]', '[ACTION]', '[SUMMARY]', NULL, strftime('%s','now'));"
+sqlite3 store/openpcbot.db "INSERT INTO hive_mind (agent_id, chat_id, action, summary, artifacts, created_at) VALUES ('comms', '[CHAT_ID]', '[ACTION]', '[SUMMARY]', NULL, strftime('%s','now'));"
 ```
 
 ## Style

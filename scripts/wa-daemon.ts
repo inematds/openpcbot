@@ -19,7 +19,7 @@ const { Client, LocalAuth } = wwebjs;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STORE_DIR = path.resolve(__dirname, '../store');
-const DB_PATH   = path.join(STORE_DIR, 'claudeclaw.db');
+const DB_PATH   = path.join(STORE_DIR, 'openpcbot.db');
 const SESSION   = path.join(STORE_DIR, 'waweb');
 const PID_FILE  = path.join(STORE_DIR, 'wa-daemon.pid');
 const CDP_PORT  = 9222;

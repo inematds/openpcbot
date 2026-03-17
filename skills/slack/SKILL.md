@@ -44,7 +44,7 @@ You need a `SLACK_USER_TOKEN` in your OpenPCBot `.env` file. If you haven't set 
 The CLI lives at the OpenPCBot project root. All commands must run from the project directory (the CLI reads `.env` from `cwd`):
 
 ```bash
-cd /path/to/claudeclaw && node dist/slack-cli.js <command>
+cd /path/to/openpcbot && node dist/slack-cli.js <command>
 ```
 
 ## Commands
@@ -52,8 +52,8 @@ cd /path/to/claudeclaw && node dist/slack-cli.js <command>
 ### List conversations (with unread counts)
 
 ```bash
-cd /path/to/claudeclaw && node dist/slack-cli.js list
-cd /path/to/claudeclaw && node dist/slack-cli.js list --limit 10
+cd /path/to/openpcbot && node dist/slack-cli.js list
+cd /path/to/openpcbot && node dist/slack-cli.js list --limit 10
 ```
 
 Returns JSON array of conversations sorted by unread count then recency. Each object has: `id`, `name`, `isIm`, `unreadCount`, `lastMessage`, `lastMessageTs`.
@@ -61,8 +61,8 @@ Returns JSON array of conversations sorted by unread count then recency. Each ob
 ### Read messages from a conversation
 
 ```bash
-cd /path/to/claudeclaw && node dist/slack-cli.js read <channel_id>
-cd /path/to/claudeclaw && node dist/slack-cli.js read <channel_id> --limit 30
+cd /path/to/openpcbot && node dist/slack-cli.js read <channel_id>
+cd /path/to/openpcbot && node dist/slack-cli.js read <channel_id> --limit 30
 ```
 
 Returns JSON array of messages (oldest first). Each object has: `text`, `userName`, `fromMe`, `ts`, `threadTs`.
@@ -70,15 +70,15 @@ Returns JSON array of messages (oldest first). Each object has: `text`, `userNam
 ### Send a message
 
 ```bash
-cd /path/to/claudeclaw && node dist/slack-cli.js send <channel_id> "message text"
-cd /path/to/claudeclaw && node dist/slack-cli.js send <channel_id> "reply text" --thread-ts 1234567890.123456
+cd /path/to/openpcbot && node dist/slack-cli.js send <channel_id> "message text"
+cd /path/to/openpcbot && node dist/slack-cli.js send <channel_id> "reply text" --thread-ts 1234567890.123456
 ```
 
 ### Search conversations by name
 
 ```bash
-cd /path/to/claudeclaw && node dist/slack-cli.js search "jane"
-cd /path/to/claudeclaw && node dist/slack-cli.js search "general"
+cd /path/to/openpcbot && node dist/slack-cli.js search "jane"
+cd /path/to/openpcbot && node dist/slack-cli.js search "general"
 ```
 
 Fuzzy matches against conversation names. Use this to find channel IDs when you need to message someone or read a channel.

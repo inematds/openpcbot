@@ -18,7 +18,7 @@
 ### Create service file
 
 ```bash
-sudo nano /etc/systemd/system/claudebot.service
+sudo nano /etc/systemd/system/openpcbot.service
 ```
 
 ```ini
@@ -29,7 +29,7 @@ After=network.target
 [Service]
 Type=simple
 User=nmaldaner
-WorkingDirectory=/home/nmaldaner/projetos/openclaw3
+WorkingDirectory=/home/nmaldaner/projetos/openpcbot
 ExecStart=/usr/bin/node dist/index.js
 Restart=always
 RestartSec=5
@@ -44,17 +44,17 @@ WantedBy=multi-user.target
 ```bash
 npm run build
 sudo systemctl daemon-reload
-sudo systemctl enable claudebot
-sudo systemctl start claudebot
+sudo systemctl enable openpcbot
+sudo systemctl start openpcbot
 ```
 
 ### Useful commands
 
 ```bash
-sudo systemctl status claudebot    # check status
-sudo systemctl restart claudebot   # restart
-sudo systemctl stop claudebot      # stop
-journalctl -u claudebot -f         # follow logs
+sudo systemctl status openpcbot    # check status
+sudo systemctl restart openpcbot   # restart
+sudo systemctl stop openpcbot      # stop
+journalctl -u openpcbot -f         # follow logs
 ```
 
 ## Option 2 — pm2
@@ -62,7 +62,7 @@ journalctl -u claudebot -f         # follow logs
 ```bash
 npm i -g pm2
 npm run build
-pm2 start dist/index.js --name claudebot
+pm2 start dist/index.js --name openpcbot
 pm2 startup    # generate auto-start script
 pm2 save       # save process list
 ```
@@ -71,9 +71,9 @@ pm2 save       # save process list
 
 ```bash
 pm2 status          # check status
-pm2 logs claudebot  # view logs
-pm2 restart claudebot
-pm2 stop claudebot
+pm2 logs openpcbot  # view logs
+pm2 restart openpcbot
+pm2 stop openpcbot
 ```
 
 ## Ollama as a service

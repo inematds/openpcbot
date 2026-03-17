@@ -35,7 +35,7 @@ if (AGENT_ID !== 'main') {
   logger.info({ agentId: AGENT_ID, name: agentConfig.name }, 'Running as agent');
 }
 
-const PID_FILE = path.join(STORE_DIR, `${AGENT_ID === 'main' ? 'claudeclaw' : `agent-${AGENT_ID}`}.pid`);
+const PID_FILE = path.join(STORE_DIR, `${AGENT_ID === 'main' ? 'openpcbot' : `agent-${AGENT_ID}`}.pid`);
 
 function showBanner(): void {
   const bannerPath = path.join(PROJECT_ROOT, 'banner.txt');

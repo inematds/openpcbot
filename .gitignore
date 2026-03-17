@@ -13,7 +13,7 @@ workspace/
 
 # Logs
 *.log
-/tmp/claudeclaw.*
+/tmp/openpcbot.*
 
 # macOS
 .DS_Store

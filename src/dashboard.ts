@@ -206,7 +206,7 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     });
 
     // Include main bot process status
-    const mainPidFile = path.join(STORE_DIR, 'claudeclaw.pid');
+    const mainPidFile = path.join(STORE_DIR, 'openpcbot.pid');
     let mainRunning = false;
     if (fs.existsSync(mainPidFile)) {
       try {
