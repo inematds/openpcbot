@@ -168,14 +168,36 @@ Voce manda mensagem no Telegram
   |     +-- /daily, /tldr, etc.
   |
   +-- Sem comando:
-        |-- Orquestrador OFF (default):
-        |     -> Ollama responde direto (gratis)
+        |-- Sticky mode ativo?
+        |     -> Vai pro agente fixado (/claude on, /ollama on, etc.)
         |
-        +-- Orquestrador ON (/orq):
-              -> Modelo leve classifica a mensagem
-              -> "simples" -> responde direto
-              -> "precisa tools" -> despacha para Claude/Codex/OpenRouter
+        |-- Orquestrador ON (/orq):
+        |     -> Modelo leve classifica a mensagem
+        |     -> "simples" -> responde direto
+        |     -> "precisa tools" -> despacha para Claude/Codex/OpenRouter
+        |
+        +-- Default (nenhum dos acima):
+              -> Ollama responde direto (gratis)
 ```
+
+### Sticky Mode (modo fixo)
+
+Por padrao, cada mensagem precisa do prefixo `/claude`, `/ollama`, etc. Com o sticky mode, voce fixa um agente e todas as mensagens vao para ele ate desligar:
+
+```
+/claude on       — Fixa no Claude (todas as msgs vao pro Claude)
+/claude off      — Desliga, volta pro padrao
+
+/ollama on       — Fixa no Ollama
+/codex on        — Fixa no Codex
+/openrouter on   — Fixa no OpenRouter
+```
+
+Qualquer `/agente off` desliga o modo sticky. So um agente pode estar fixado por vez -- ativar um desativa o anterior.
+
+O sticky mode tem prioridade sobre o orquestrador. Se `/claude on` esta ativo, o `/orq` e ignorado.
+
+Reseta no restart do bot.
 
 ### Trocar modelos
 
@@ -250,6 +272,10 @@ O Claude mantém sessao persistente entre mensagens (context carry). Ollama e Op
 | `/ollama <msg>` | Envia para Ollama local |
 | `/codex <msg>` | Envia para Codex (OpenAI) |
 | `/openrouter <msg>` | Envia para OpenRouter |
+| `/claude on/off` | Sticky mode: fixa todas as msgs no Claude |
+| `/ollama on/off` | Sticky mode: fixa todas as msgs no Ollama |
+| `/codex on/off` | Sticky mode: fixa todas as msgs no Codex |
+| `/openrouter on/off` | Sticky mode: fixa todas as msgs no OpenRouter |
 | `/orq` | Liga/desliga orquestrador automatico |
 | `/models` | Mostra modelo ativo de cada agente |
 

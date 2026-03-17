@@ -114,6 +114,11 @@ const MAX_HISTORY = 20; // max messages to keep per chat
 // Per-chat orchestrator toggle (off by default — messages go straight to Ollama)
 const orchestratorEnabled = new Set<string>();
 
+// Per-chat sticky agent mode (in-memory, resets on restart)
+// When set, all plain messages (no /command) route to this agent instead of Ollama
+type StickyAgent = 'claude' | 'ollama' | 'codex' | 'openrouter';
+const stickyAgent = new Map<string, StickyAgent>();
+
 // WhatsApp state per Telegram chat
 interface WaStateList { mode: 'list'; chats: WaChat[] }
 interface WaStateChat { mode: 'chat'; chatId: string; chatName: string }
@@ -831,6 +836,12 @@ export function createBot(): Bot {
       '/openrouter model deepseek/deepseek-chat — OpenRouter\n' +
       '/models — Show active model for each agent\n\n' +
 
+      '<b>Sticky Mode</b>\n' +
+      '/claude on — Todas as msgs vao pro Claude ate /claude off\n' +
+      '/ollama on — Todas as msgs vao pro Ollama ate /ollama off\n' +
+      '/codex on — Todas as msgs vao pro Codex ate /codex off\n' +
+      '/openrouter on — Todas as msgs vao pro OpenRouter ate /openrouter off\n\n' +
+
       '<b>Orchestrator</b>\n' +
       '/orq — Toggle auto-routing on/off\n' +
       'When ON, a lightweight model classifies your message and dispatches it to the best agent automatically.\n\n' +
@@ -981,11 +992,24 @@ export function createBot(): Bot {
     const chatIdStr = ctx.chat!.id.toString();
     const arg = ctx.match?.trim() ?? '';
 
+    // /ollama on — sticky mode
+    if (arg === 'on') {
+      stickyAgent.set(chatIdStr, 'ollama');
+      await ctx.reply('Modo Ollama ativado. Todas as mensagens vao para o Ollama ate voce mandar /ollama off.');
+      return;
+    }
+    if (arg === 'off') {
+      stickyAgent.delete(chatIdStr);
+      await ctx.reply('Modo Ollama desativado. Mensagens voltam pro padrao.');
+      return;
+    }
+
     if (!arg) {
       const model = chatOllamaModel.get(chatIdStr) ?? OLLAMA_MODEL;
       const models = await ollamaListModels();
       const list = models.length > 0 ? models.join(', ') : 'none found';
-      await ctx.reply(`Ollama model: ${model}\nAvailable: ${list}\n\nUsage:\n/ollama <message> — chat with Ollama\n/ollama model <name> — switch model`);
+      const sticky = stickyAgent.get(chatIdStr) === 'ollama' ? ' (sticky ON)' : '';
+      await ctx.reply(`Ollama model: ${model}${sticky}\nAvailable: ${list}\n\nUsage:\n/ollama <message> — chat\n/ollama model <name> — switch model\n/ollama on/off — sticky mode`);
       return;
     }
 
@@ -1015,14 +1039,28 @@ export function createBot(): Bot {
   // /claude — send message directly to Claude Agent SDK (full tools)
   bot.command('claude', async (ctx) => {
     if (!isAuthorised(ctx.chat!.id)) return;
+    const chatIdStr = ctx.chat!.id.toString();
     const arg = ctx.match?.trim() ?? '';
 
+    // /claude on — sticky mode
+    if (arg === 'on') {
+      stickyAgent.set(chatIdStr, 'claude');
+      await ctx.reply('Modo Claude ativado. Todas as mensagens vao para o Claude ate voce mandar /claude off.');
+      return;
+    }
+    if (arg === 'off') {
+      stickyAgent.delete(chatIdStr);
+      await ctx.reply('Modo Claude desativado. Mensagens voltam pro padrao.');
+      return;
+    }
+
     if (!arg) {
-      const current = chatModelOverride.get(ctx.chat!.id.toString());
+      const current = chatModelOverride.get(chatIdStr);
       const currentLabel = current
         ? Object.entries(AVAILABLE_MODELS).find(([, v]) => v === current)?.[0] ?? current
         : DEFAULT_MODEL_LABEL + ' (default)';
-      await ctx.reply(`Claude Agent (full tools: bash, file edit, web search)\nModel: ${currentLabel}\n\nUsage: /claude <message>\n/model <name> to switch model`);
+      const sticky = stickyAgent.get(chatIdStr) === 'claude' ? ' (sticky ON)' : '';
+      await ctx.reply(`Claude Agent (full tools: bash, file edit, web search)${sticky}\nModel: ${currentLabel}\n\nUsage: /claude <message>\n/claude on/off — sticky mode\n/model <name> to switch model`);
       return;
     }
 
@@ -1044,11 +1082,25 @@ export function createBot(): Bot {
   // /codex — send message to Codex CLI
   bot.command('codex', async (ctx) => {
     if (!isAuthorised(ctx.chat!.id)) return;
+    const chatIdStr = ctx.chat!.id.toString();
     const arg = ctx.match?.trim() ?? '';
+
+    // /codex on — sticky mode
+    if (arg === 'on') {
+      stickyAgent.set(chatIdStr, 'codex');
+      await ctx.reply('Modo Codex ativado. Todas as mensagens vao para o Codex ate voce mandar /codex off.');
+      return;
+    }
+    if (arg === 'off') {
+      stickyAgent.delete(chatIdStr);
+      await ctx.reply('Modo Codex desativado. Mensagens voltam pro padrao.');
+      return;
+    }
 
     if (!arg) {
       const available = await codexAvailable();
-      await ctx.reply(`Codex CLI: ${available ? 'installed' : 'not found'}\n\nUsage: /codex <message>`);
+      const sticky = stickyAgent.get(chatIdStr) === 'codex' ? ' (sticky ON)' : '';
+      await ctx.reply(`Codex CLI: ${available ? 'installed' : 'not found'}${sticky}\n\nUsage: /codex <message>\n/codex on/off — sticky mode`);
       return;
     }
 
@@ -1071,10 +1123,23 @@ export function createBot(): Bot {
     const chatIdStr = ctx.chat!.id.toString();
     const arg = ctx.match?.trim() ?? '';
 
+    // /openrouter on — sticky mode
+    if (arg === 'on') {
+      stickyAgent.set(chatIdStr, 'openrouter');
+      await ctx.reply('Modo OpenRouter ativado. Todas as mensagens vao para o OpenRouter ate voce mandar /openrouter off.');
+      return;
+    }
+    if (arg === 'off') {
+      stickyAgent.delete(chatIdStr);
+      await ctx.reply('Modo OpenRouter desativado. Mensagens voltam pro padrao.');
+      return;
+    }
+
     if (!arg) {
       const model = chatOpenrouterModel.get(chatIdStr) ?? OPENROUTER_MODEL;
       const available = openrouterAvailable();
-      await ctx.reply(`OpenRouter: ${available ? 'configured' : 'no API key'}\nModel: ${model}\n\nUsage:\n/openrouter <message> — chat\n/openrouter model <name> — switch model`);
+      const sticky = stickyAgent.get(chatIdStr) === 'openrouter' ? ' (sticky ON)' : '';
+      await ctx.reply(`OpenRouter: ${available ? 'configured' : 'no API key'}${sticky}\nModel: ${model}\n\nUsage:\n/openrouter <message> — chat\n/openrouter model <name> — switch model\n/openrouter on/off — sticky mode`);
       return;
     }
 
@@ -1467,13 +1532,22 @@ export function createBot(): Bot {
     // Clear WA/Slack state
     if (state) waState.delete(chatIdStr);
     if (slkState) slackState.delete(chatIdStr);
+
     // Fire-and-forget so grammY can process /stop while agent runs
-    if (orchestratorEnabled.has(chatIdStr)) {
+    // Priority: sticky agent > orchestrator > default (Ollama)
+    const sticky = stickyAgent.get(chatIdStr);
+    if (sticky === 'claude') {
+      handleMessage(ctx, text).catch((err) => logger.error({ err }, 'Sticky claude error'));
+    } else if (sticky === 'codex') {
+      handleCodexMessage(ctx, text).catch((err) => logger.error({ err }, 'Sticky codex error'));
+    } else if (sticky === 'openrouter') {
+      handleOpenrouterMessage(ctx, text).catch((err) => logger.error({ err }, 'Sticky openrouter error'));
+    } else if (sticky === 'ollama' || !orchestratorEnabled.has(chatIdStr)) {
+      // Sticky ollama or default (no orchestrator): straight to Ollama
+      handleOllamaMessage(ctx, text).catch((err) => logger.error({ err }, 'Unhandled message error'));
+    } else {
       // Orchestrator ON: classify and dispatch via lightweight model
       handleRoutedMessage(ctx, text).catch((err) => logger.error({ err }, 'Unhandled message error'));
-    } else {
-      // Orchestrator OFF (default): straight to Ollama
-      handleOllamaMessage(ctx, text).catch((err) => logger.error({ err }, 'Unhandled message error'));
     }
   });
 
