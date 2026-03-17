@@ -135,6 +135,106 @@ openpcbot/
 
 ---
 
+## Sistema de Agentes
+
+O OpenPCBot tem 4 agentes LLM integrados, cada um com capacidades diferentes:
+
+### Agentes built-in
+
+| Agente | Comando | Modelo | Capacidades | Custo |
+|--------|---------|--------|------------|-------|
+| **Ollama** | (default) ou `/ollama` | qwen3.5:35b-a3b | Chat direto, sem tools | Gratis (local) |
+| **Claude** | `/claude` | Opus/Sonnet/Haiku | Bash, files, web, MCP, skills — acesso completo | Anthropic Max ou API key |
+| **Codex** | `/codex` | GPT (OpenAI) | Coding agent, full-auto | OpenAI API key |
+| **OpenRouter** | `/openrouter` | deepseek-chat (configuravel) | Chat multi-modelo | OpenRouter API key |
+
+**Por padrao**, mensagens sem comando vao para o Ollama (gratis, local). Para tarefas que precisam de ferramentas (editar arquivos, rodar comandos, pesquisar web), use `/claude`.
+
+### Como funciona
+
+```
+Voce manda mensagem no Telegram
+  |
+  |-- Tem /comando?
+  |     |-- /claude   -> Claude Code (tools completas)
+  |     |-- /codex    -> Codex CLI
+  |     |-- /ollama   -> Ollama local
+  |     |-- /openrouter -> OpenRouter
+  |     |-- /brain    -> Salva no vault
+  |     +-- /daily, /tldr, etc.
+  |
+  +-- Sem comando:
+        |-- Orquestrador OFF (default):
+        |     -> Ollama responde direto (gratis)
+        |
+        +-- Orquestrador ON (/orq):
+              -> Modelo leve classifica a mensagem
+              -> "simples" -> responde direto
+              -> "precisa tools" -> despacha para Claude/Codex/OpenRouter
+```
+
+### Trocar modelos
+
+Cada agente pode ter seu modelo alterado em tempo real:
+
+```
+/model sonnet                              — Claude (opus/sonnet/haiku)
+/ollama model qwen3.5:35b-a3b             — Ollama (qualquer modelo instalado)
+/openrouter model deepseek/deepseek-chat   — OpenRouter (qualquer modelo disponivel)
+/models                                    — Mostra modelo ativo de cada agente
+```
+
+### Orquestrador
+
+O orquestrador e um roteador automatico. Quando ligado (`/orq`), um modelo leve (qwen2.5:14b) analisa cada mensagem e decide:
+- Se e uma pergunta simples -> responde direto (Ollama, gratis)
+- Se precisa de ferramentas -> despacha para o Claude ou outro agente
+
+Desligado por padrao. Liga/desliga com `/orq`.
+
+### Agentes especialistas
+
+Alem dos agentes built-in, o OpenPCBot suporta agentes dedicados, cada um com seu proprio bot Telegram, personalidade e contexto isolado:
+
+| Agente | Foco | Modelo default |
+|--------|------|----------------|
+| **Comms** | Email, Slack, WhatsApp, DMs | Sonnet |
+| **Content** | YouTube, LinkedIn, content calendar | Sonnet |
+| **Ops** | Calendario, billing, admin, tasks | Sonnet |
+| **Research** | Pesquisa web, competitive intel | Sonnet |
+
+Cada agente especialista:
+- Tem seu proprio bot Telegram (token separado)
+- Roda em processo Node.js independente
+- Tem sua propria janela de contexto de 1M tokens
+- Tem `CLAUDE.md` personalizado para o papel
+- Compartilha o mesmo banco SQLite, skills e `.env`
+- Loga acoes na tabela `hive_mind` (visivel por todos os agentes)
+
+```bash
+# Criar agente interativamente
+npm run agent:create
+
+# Iniciar um agente
+npm start -- --agent comms
+
+# Instalar como servico systemd
+bash scripts/agent-service.sh install comms
+```
+
+### Sessao e historico
+
+```
+/newchat              — Limpa sessao Claude, comeca do zero
+/respin               — Recarrega ultimas 20 turns apos /newchat
+/ollama clear         — Limpa historico Ollama
+/openrouter clear     — Limpa historico OpenRouter
+```
+
+O Claude mantém sessao persistente entre mensagens (context carry). Ollama e OpenRouter mantém historico em memoria (reseta no restart do bot).
+
+---
+
 ## Comandos Telegram
 
 ### Agentes
@@ -147,7 +247,7 @@ openpcbot/
 | `/codex <msg>` | Envia para Codex (OpenAI) |
 | `/openrouter <msg>` | Envia para OpenRouter |
 | `/orq` | Liga/desliga orquestrador automatico |
-| `/models` | Lista modelos disponiveis no Ollama |
+| `/models` | Mostra modelo ativo de cada agente |
 
 ### Second Brain
 
@@ -161,20 +261,40 @@ openpcbot/
 | `/resuma` | Alias de `/tldr` (mesmo comportamento) |
 | `/file-intel` | Processa pasta de docs e gera resumos (via Claude skill) |
 
-### Gerais
+### Modelos
 
 | Comando | Descricao |
 |---------|-----------|
-| `/stop` | Cancela query em execucao |
-| `/model <nome>` | Troca modelo Claude (haiku/sonnet/opus) |
-| `/voice` | Liga/desliga respostas em audio |
-| `/newchat` | Nova sessao limpa |
+| `/model <nome>` | Troca modelo Claude (opus/sonnet/haiku) |
+| `/ollama model <nome>` | Troca modelo Ollama |
+| `/openrouter model <nome>` | Troca modelo OpenRouter |
+| `/models` | Mostra modelo ativo de cada agente |
+
+### Sessao
+
+| Comando | Descricao |
+|---------|-----------|
+| `/newchat` | Nova sessao Claude limpa |
 | `/respin` | Recupera ultimas 20 turns numa sessao nova |
+| `/ollama clear` | Limpa historico Ollama |
+| `/openrouter clear` | Limpa historico OpenRouter |
+
+### Monitoramento
+
+| Comando | Descricao |
+|---------|-----------|
+| `/dashboard` | Link para o dashboard web |
 | `/memory` | Mostra memorias recentes |
+| `/stop` | Cancela query em execucao |
+
+### Outros
+
+| Comando | Descricao |
+|---------|-----------|
+| `/voice` | Liga/desliga respostas em audio |
 | `/forget` | Limpa sessao (memorias decaem naturalmente) |
 | `/wa` | Interface WhatsApp |
 | `/slack` | Interface Slack |
-| `/dashboard` | Link para o dashboard web |
 | `/help` | Lista todos os comandos |
 
 ---
