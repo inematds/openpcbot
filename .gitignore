@@ -18,6 +18,9 @@ workspace/
 # macOS
 .DS_Store
 
+# Second Brain outputs
+outputs/
+
 # Editor
 .vscode/
 .idea/

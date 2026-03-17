@@ -68,6 +68,7 @@ O Claude tem acesso completo: bash, file system, web search, MCP servers, skills
 - **Obsidian auto-injection** de tarefas abertas para agentes
 - **Hive mind** para logs cross-agent
 - **Project resolver** para navegacao entre projetos locais
+- **Second Brain** — vault Obsidian com skills /daily, /tldr, /file-intel, /vault-setup
 
 ---
 
@@ -101,8 +102,18 @@ openpcbot/
 │   ├── ops/              Calendario, billing, admin
 │   ├── research/         Pesquisa profunda
 │   └── _template/        Template para novos agentes
-├── skills/               Skills bundled (gmail, calendar, slack)
+├── skills/               Skills bundled
+│   ├── gmail/            Email
+│   ├── google-calendar/  Calendario
+│   ├── slack/            Slack
+│   ├── vault-setup/      Configurador interativo do vault
+│   ├── daily/            Standup matinal com contexto do vault
+│   ├── tldr/             Resumo de sessao salvo no vault
+│   └── file-intel/       Processador de docs (Gemini/Claude/Ollama)
 ├── scripts/              Setup, status, wa-daemon, agent tools
+│   ├── process_files_with_gemini.py   Analisa pasta de arquivos
+│   └── process_docs_to_obsidian.py    Converte docs em notas Obsidian
+├── vault-template/       Template de vault com estrutura inicial
 ├── docs/                 Docs de implementacao
 ├── store/                Runtime (DB, PID, sessoes WhatsApp)
 └── workspace/uploads/    Downloads de midia (auto-cleanup 24h)
@@ -179,6 +190,7 @@ Variaveis principais em `.env` (ver `.env.example` para lista completa):
 | `ELEVENLABS_API_KEY` | Nao | Voice output |
 | `DASHBOARD_TOKEN` | Nao | Token para acesso ao dashboard |
 | `SLACK_USER_TOKEN` | Nao | Token Slack (xoxp-) |
+| `VAULT_PATH` | Nao | Caminho do vault Obsidian (default: ~/vault) |
 
 ---
 
@@ -197,9 +209,62 @@ npm run status       # Health check
 
 ---
 
+## Second Brain
+
+Sistema de "segundo cerebro" integrado ao bot. Baseado no [second-brain](https://github.com/inematds/second-brain).
+
+Organiza notas, decisoes e contexto num vault local (pasta de arquivos .md). O Claude le suas notas antes de responder e salva resumos depois de cada sessao.
+
+### Setup rapido
+
+```bash
+# 1. Definir VAULT_PATH no .env (ou usar ~/vault)
+# 2. Instalar deps Python (opcional, para /file-intel)
+pip install -r requirements.txt
+
+# 3. Copiar skills para o Claude Code
+cp -r skills/vault-setup ~/.claude/skills/
+cp -r skills/daily ~/.claude/skills/
+cp -r skills/tldr ~/.claude/skills/
+cp -r skills/file-intel ~/.claude/skills/
+
+# 4. Rodar o configurador interativo
+# No Telegram: /claude /vault-setup
+```
+
+### Skills
+
+| Skill | O que faz |
+|-------|-----------|
+| `/vault-setup` | Configura o vault interativamente (pergunta sobre voce, cria pastas, personaliza CLAUDE.md) |
+| `/daily` | Standup matinal: le nota do dia, checa inbox, lista prioridades |
+| `/tldr` | Salva resumo da sessao no vault (decisoes, contexto, proximos passos) |
+| `/file-intel` | Processa pasta de docs e gera resumos Obsidian-ready |
+
+### Processamento de documentos
+
+O `/file-intel` usa fallback automatico:
+1. **Gemini** (gratis via Google AI Studio) — default
+2. **Claude CLI** — se Gemini falhar
+3. **Ollama local** — se ambos falharem
+
+Formatos suportados: PDF, PPTX, XLSX, DOCX, CSV, JSON, XML, MD, TXT, e qualquer arquivo texto.
+
+```bash
+# Processar pasta de arquivos
+python scripts/process_files_with_gemini.py ~/Documents/files
+
+# Converter docs em notas Obsidian
+python scripts/process_docs_to_obsidian.py ~/Documents/files ~/vault/inbox
+```
+
+---
+
 ## Upstream
 
 Baseado no ClaudeClaw. Documentacao completa do projeto original (setup detalhado, API keys, WhatsApp, Slack, dashboard, memoria, agentes especialistas, troubleshooting) esta em [CLAUDECLAW_GUIDE.md](./CLAUDECLAW_GUIDE.md).
+
+Recurso Second Brain baseado em [github.com/inematds/second-brain](https://github.com/inematds/second-brain).
 
 ---
 
