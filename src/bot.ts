@@ -808,7 +808,7 @@ export function createBot(): Bot {
   bot.command('help', (ctx) => {
     if (!isAuthorised(ctx.chat!.id)) return;
     return ctx.reply(
-      '<b>OpenPCBot v2.0.0</b>\n\n' +
+      '<b>OpenPCBot v2.0</b>\n\n' +
 
       '<b>Built-in Agents</b>\n' +
       'Send a message without a command and Ollama responds directly (free, local).\n' +
