@@ -61,7 +61,7 @@ function parseEnvFile(filePath: string): Record<string, string> {
 
 async function main() {
   console.log();
-  console.log(`  ${c.bold}${c.cyan}ClaudeClaw Status${c.reset}`);
+  console.log(`  ${c.bold}${c.cyan}OpenPCBot Status${c.reset}`);
   console.log(`  ${c.gray}${'─'.repeat(17)}${c.reset}`);
 
   // Node version

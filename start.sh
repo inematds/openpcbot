@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ClaudeClaw — manual start script
+# OpenPCBot — manual start script
 # Usage: ./start.sh         (foreground)
 #        ./start.sh bg      (background with log file)
 
@@ -29,6 +29,6 @@ if [ "$1" = "bg" ]; then
   echo $! > "$DIR/store/claudebot.pid"
   echo "PID: $(cat "$DIR/store/claudebot.pid")"
 else
-  echo "Starting ClaudeClaw..."
+  echo "Starting OpenPCBot..."
   node dist/index.js
 fi

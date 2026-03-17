@@ -12,13 +12,13 @@ Interact with your Slack workspace using natural language from Claude Code.
 
 ## Prerequisites
 
-You need a `SLACK_USER_TOKEN` in your ClaudeClaw `.env` file. If you haven't set this up yet, follow these steps:
+You need a `SLACK_USER_TOKEN` in your OpenPCBot `.env` file. If you haven't set this up yet, follow these steps:
 
 ### Getting your Slack User OAuth Token
 
 1. Go to [api.slack.com/apps](https://api.slack.com/apps) and click **Create New App**
 2. Choose **From scratch** (not "From an app manifest")
-3. Name it (e.g. `ClaudeClaw`), select your workspace, click **Create App**
+3. Name it (e.g. `OpenPCBot`), select your workspace, click **Create App**
 4. In the **left sidebar**, click **OAuth & Permissions**
 5. Scroll down to the **Scopes** section. You'll see **Bot Token Scopes** and **User Token Scopes**
 6. **Ignore Bot Token Scopes.** Under **User Token Scopes**, click **Add an OAuth Scope** and add all of these:
@@ -41,7 +41,7 @@ You need a `SLACK_USER_TOKEN` in your ClaudeClaw `.env` file. If you haven't set
 
 ## Setup
 
-The CLI lives at the ClaudeClaw project root. All commands must run from the project directory (the CLI reads `.env` from `cwd`):
+The CLI lives at the OpenPCBot project root. All commands must run from the project directory (the CLI reads `.env` from `cwd`):
 
 ```bash
 cd /path/to/claudeclaw && node dist/slack-cli.js <command>

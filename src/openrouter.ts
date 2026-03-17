@@ -53,7 +53,7 @@ export async function openrouterChat(
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
         'HTTP-Referer': 'https://github.com/claudeclaw',
-        'X-Title': 'ClaudeClaw',
+        'X-Title': 'OpenPCBot',
       },
       body: JSON.stringify({
         model,

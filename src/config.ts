@@ -109,7 +109,7 @@ export const VAULT_PATH =
 export const VAULT_PATH_RESOLVED =
   VAULT_PATH.replace(/^~/, process.env.HOME || '/home/nmaldaner');
 
-// Dashboard — web UI for monitoring ClaudeClaw state
+// Dashboard — web UI for monitoring OpenPCBot state
 export const DASHBOARD_PORT = parseInt(
   process.env.DASHBOARD_PORT || envConfig.DASHBOARD_PORT || '3141',
   10,

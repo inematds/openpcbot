@@ -23,7 +23,7 @@ sudo nano /etc/systemd/system/claudebot.service
 
 ```ini
 [Unit]
-Description=ClaudeClaw Telegram Bot
+Description=OpenPCBot Telegram Bot
 After=network.target
 
 [Service]

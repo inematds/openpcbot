@@ -12,7 +12,7 @@ Read, triage, reply, and send emails from your Gmail inbox via Claude Code.
 
 ## Environment
 
-The Gmail CLI reads credential paths from environment variables, loaded from ClaudeClaw's `.env` via `CLAUDECLAW_DIR`. Every command MUST use this prefix:
+The Gmail CLI reads credential paths from environment variables, loaded from OpenPCBot's `.env` via `CLAUDECLAW_DIR`. Every command MUST use this prefix:
 
 ```
 CLAUDECLAW_DIR=/path/to/claudeclaw

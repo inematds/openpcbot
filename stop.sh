@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ClaudeClaw — stop background process
+# OpenPCBot — stop background process
 DIR="$(cd "$(dirname "$0")" && pwd)"
 PID_FILE="$DIR/store/claudebot.pid"
 

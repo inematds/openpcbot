@@ -12,7 +12,7 @@ Create meetings with Google Meet links, send invites, check availability, and ma
 
 ## Environment
 
-The calendar CLI reads credential paths from environment variables, loaded from ClaudeClaw's `.env` via `CLAUDECLAW_DIR`. Every command MUST use this prefix:
+The calendar CLI reads credential paths from environment variables, loaded from OpenPCBot's `.env` via `CLAUDECLAW_DIR`. Every command MUST use this prefix:
 
 ```
 CLAUDECLAW_DIR=/path/to/claudeclaw

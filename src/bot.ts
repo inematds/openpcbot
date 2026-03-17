@@ -365,7 +365,7 @@ async function handleOllamaMessage(ctx: Context, message: string): Promise<void>
       history.push({
         role: 'system',
         content: [
-          'You are a helpful assistant running inside ClaudeClaw, a multi-agent Telegram bot. You answer questions directly. Keep responses concise.',
+          'You are a helpful assistant running inside OpenPCBot, a multi-agent Telegram bot. You answer questions directly. Keep responses concise.',
           '',
           'Environment:',
           '- All user projects live in /home/nmaldaner/projetos/ (120+ projects)',
@@ -585,7 +585,7 @@ async function handleMessage(ctx: Context, message: string, forceVoiceReply = fa
   // First-run setup guidance: ALLOWED_CHAT_ID not set yet
   if (!ALLOWED_CHAT_ID) {
     await ctx.reply(
-      `Your chat ID is ${chatId}.\n\nAdd this to your .env:\n\nALLOWED_CHAT_ID=${chatId}\n\nThen restart ClaudeClaw.`,
+      `Your chat ID is ${chatId}.\n\nAdd this to your .env:\n\nALLOWED_CHAT_ID=${chatId}\n\nThen restart OpenPCBot.`,
     );
     return;
   }
@@ -808,7 +808,7 @@ export function createBot(): Bot {
   bot.command('help', (ctx) => {
     if (!isAuthorised(ctx.chat!.id)) return;
     return ctx.reply(
-      '<b>ClaudeClaw</b>\n\n' +
+      '<b>OpenPCBot v2.0.0</b>\n\n' +
 
       '<b>Built-in Agents</b>\n' +
       'Send a message without a command and Ollama responds directly (free, local).\n' +
@@ -878,7 +878,7 @@ export function createBot(): Bot {
     if (AGENT_ID !== 'main') {
       return ctx.reply(`${AGENT_ID.charAt(0).toUpperCase() + AGENT_ID.slice(1)} agent online.`);
     }
-    return ctx.reply('ClaudeClaw online. What do you need?');
+    return ctx.reply('OpenPCBot online. What do you need?');
   });
 
   // /newchat — clear Claude session, start fresh
@@ -1484,7 +1484,7 @@ export function createBot(): Bot {
     if (!isAuthorised(chatId)) return;
     if (!ALLOWED_CHAT_ID) {
       await ctx.reply(
-        `Your chat ID is ${chatId}.\n\nAdd this to your .env:\n\nALLOWED_CHAT_ID=${chatId}\n\nThen restart ClaudeClaw.`,
+        `Your chat ID is ${chatId}.\n\nAdd this to your .env:\n\nALLOWED_CHAT_ID=${chatId}\n\nThen restart OpenPCBot.`,
       );
       return;
     }
@@ -1512,7 +1512,7 @@ export function createBot(): Bot {
     if (!isAuthorised(chatId)) return;
     if (!ALLOWED_CHAT_ID) {
       await ctx.reply(
-        `Your chat ID is ${chatId}.\n\nAdd this to your .env:\n\nALLOWED_CHAT_ID=${chatId}\n\nThen restart ClaudeClaw.`,
+        `Your chat ID is ${chatId}.\n\nAdd this to your .env:\n\nALLOWED_CHAT_ID=${chatId}\n\nThen restart OpenPCBot.`,
       );
       return;
     }
@@ -1538,7 +1538,7 @@ export function createBot(): Bot {
     if (!isAuthorised(chatId)) return;
     if (!ALLOWED_CHAT_ID) {
       await ctx.reply(
-        `Your chat ID is ${chatId}.\n\nAdd this to your .env:\n\nALLOWED_CHAT_ID=${chatId}\n\nThen restart ClaudeClaw.`,
+        `Your chat ID is ${chatId}.\n\nAdd this to your .env:\n\nALLOWED_CHAT_ID=${chatId}\n\nThen restart OpenPCBot.`,
       );
       return;
     }
@@ -1570,7 +1570,7 @@ export function createBot(): Bot {
     const chatId = ctx.chat!.id;
     if (!isAuthorised(chatId)) return;
     if (!ALLOWED_CHAT_ID) {
-      await ctx.reply(`Your chat ID is ${chatId}.\n\nAdd this to your .env:\n\nALLOWED_CHAT_ID=${chatId}\n\nThen restart ClaudeClaw.`);
+      await ctx.reply(`Your chat ID is ${chatId}.\n\nAdd this to your .env:\n\nALLOWED_CHAT_ID=${chatId}\n\nThen restart OpenPCBot.`);
       return;
     }
 
@@ -1595,7 +1595,7 @@ export function createBot(): Bot {
     const chatId = ctx.chat!.id;
     if (!isAuthorised(chatId)) return;
     if (!ALLOWED_CHAT_ID) {
-      await ctx.reply(`Your chat ID is ${chatId}.\n\nAdd this to your .env:\n\nALLOWED_CHAT_ID=${chatId}\n\nThen restart ClaudeClaw.`);
+      await ctx.reply(`Your chat ID is ${chatId}.\n\nAdd this to your .env:\n\nALLOWED_CHAT_ID=${chatId}\n\nThen restart OpenPCBot.`);
       return;
     }
 

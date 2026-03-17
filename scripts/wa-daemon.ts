@@ -1,5 +1,5 @@
 /**
- * Standalone WhatsApp daemon — runs independently of ClaudeClaw.
+ * Standalone WhatsApp daemon — runs independently of OpenPCBot.
  * - Keeps a WhatsApp Web session alive via whatsapp-web.js + Puppeteer
  * - Exposes CDP on port 9222 (fixed) for live chat/message reads
  * - HTTP API on port 4242 for status + queued sends

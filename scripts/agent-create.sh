@@ -1,12 +1,12 @@
 #!/bin/bash
-# ClaudeClaw Agent Creator
+# OpenPCBot Agent Creator
 # Usage: npm run agent:create
 # Or:    bash scripts/agent-create.sh
 
 set -e
 cd "$(dirname "$0")/.."
 
-echo "=== ClaudeClaw Agent Creator ==="
+echo "=== OpenPCBot Agent Creator ==="
 echo ""
 
 # Step 1: Pick a template or start blank
@@ -55,7 +55,7 @@ echo "Now create a Telegram bot for this agent:"
 echo ""
 echo "  1. Open Telegram and message @BotFather"
 echo "  2. Send /newbot"
-echo "  3. Name it something like 'Mark ${AGENT_ID^}' or 'ClaudeClaw ${AGENT_ID^}'"
+echo "  3. Name it something like 'Mark ${AGENT_ID^}' or 'OpenPCBot ${AGENT_ID^}'"
 echo "  4. Give it a username like 'mark_${AGENT_ID}_bot'"
 echo "  5. Copy the token BotFather gives you"
 echo ""

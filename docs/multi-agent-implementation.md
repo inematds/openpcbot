@@ -116,7 +116,7 @@ OPENROUTER_MODEL=deepseek/deepseek-chat
 ## How default mode works (when /orq is OFF)
 
 1. Messages without a command go to `handleOllamaMessage()`
-2. Ollama receives the message with a system prompt that explains it's part of ClaudeClaw
+2. Ollama receives the message with a system prompt that explains it's part of OpenPCBot
 3. If the user asks for tool-based tasks, Ollama tells them to use /claude or /codex
 4. Conversation history is maintained in-memory (max 20 messages)
 
@@ -130,7 +130,7 @@ OPENROUTER_MODEL=deepseek/deepseek-chat
 ## Ollama system prompt
 
 When Ollama is used as direct responder, it gets this system prompt:
-> You are a helpful assistant running inside ClaudeClaw, a multi-agent Telegram bot. You answer questions directly. If the user asks you to edit files, run commands, deploy code, or do anything that requires system tools, tell them to use /claude or /codex — those agents have full tool access. Keep responses concise.
+> You are a helpful assistant running inside OpenPCBot, a multi-agent Telegram bot. You answer questions directly. If the user asks you to edit files, run commands, deploy code, or do anything that requires system tools, tell them to use /claude or /codex — those agents have full tool access. Keep responses concise.
 
 ## Prerequisites
 
