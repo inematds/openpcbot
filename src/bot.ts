@@ -28,6 +28,8 @@ import { logger } from './logger.js';
 import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage } from './media.js';
 import { buildMemoryContext, saveConversationTurn } from './memory.js';
 import { emitChatEvent, setProcessing, setActiveAbort, abortActiveQuery } from './state.js';
+import { VAULT_PATH_RESOLVED } from './config.js';
+import path from 'path';
 
 // ── Context window tracking ──────────────────────────────────────────
 // Uses input_tokens from the last API call (= actual context window size:
@@ -123,6 +125,48 @@ interface SlackStateList { mode: 'list'; convos: SlackConversation[] }
 interface SlackStateChat { mode: 'chat'; channelId: string; channelName: string }
 type SlackState = SlackStateList | SlackStateChat;
 const slackState = new Map<string, SlackState>();
+
+// ── Second Brain triggers ────────────────────────────────────────────
+const BRAIN_TRIGGER = /\b(guard[ae]\s+(isso|isto|este)|salv[ae]\s+(isso|isto|no brain|no cerebro)|armazen[ae]\s+(isso|isto)|memoriz[ae]\s+(isso|isto)|lemb?r[ae]\s+dis[st]o|save this|store this|manda\s+pr[ao]\s+brain)\b/i;
+
+function isBrainTrigger(text: string): boolean {
+  return BRAIN_TRIGGER.test(text);
+}
+
+function stripBrainTrigger(text: string): string {
+  return text.replace(BRAIN_TRIGGER, '').replace(/^[\s,.;:-]+|[\s,.;:-]+$/g, '').trim();
+}
+
+async function saveToBrain(ctx: Context, content: string, filename?: string): Promise<void> {
+  const vaultInbox = path.join(VAULT_PATH_RESOLVED, 'inbox');
+  try {
+    fs.mkdirSync(vaultInbox, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const fname = filename || `note-${timestamp}.md`;
+    const fpath = path.join(vaultInbox, fname);
+    const frontmatter = `---\ndate: ${new Date().toISOString().slice(0, 10)}\nsource: telegram\n---\n\n`;
+    fs.writeFileSync(fpath, frontmatter + content);
+    await ctx.reply(`Salvo no brain: ${fname}`);
+    logger.info({ file: fpath }, 'Saved to brain vault');
+  } catch (err) {
+    logger.error({ err }, 'Failed to save to brain vault');
+    await ctx.reply('Erro ao salvar no brain. Verifique VAULT_PATH.');
+  }
+}
+
+async function saveFileToBrain(ctx: Context, sourcePath: string, filename: string): Promise<void> {
+  const vaultInbox = path.join(VAULT_PATH_RESOLVED, 'inbox');
+  try {
+    fs.mkdirSync(vaultInbox, { recursive: true });
+    const destPath = path.join(vaultInbox, filename);
+    fs.copyFileSync(sourcePath, destPath);
+    await ctx.reply(`Arquivo salvo no brain: ${filename}`);
+    logger.info({ file: destPath }, 'File saved to brain vault');
+  } catch (err) {
+    logger.error({ err }, 'Failed to save file to brain vault');
+    await ctx.reply('Erro ao salvar arquivo no brain.');
+  }
+}
 
 /**
  * Escape a string for safe inclusion in Telegram HTML messages.
@@ -753,6 +797,11 @@ export function createBot(): Bot {
     { command: 'slack', description: 'Recent Slack messages' },
     { command: 'dashboard', description: 'Open web dashboard' },
     { command: 'stop', description: 'Stop current processing' },
+    { command: 'brain', description: 'Save file/text to second brain vault' },
+    { command: 'daily', description: 'Morning standup with vault context' },
+    { command: 'dia', description: 'Standup matinal (alias /daily)' },
+    { command: 'tldr', description: 'Save session summary to vault' },
+    { command: 'resuma', description: 'Resumo da sessao (alias /tldr)' },
   ]).catch((err) => logger.warn({ err }, 'Failed to register bot commands with Telegram'));
 
   // /help — list available commands with usage guide
@@ -1195,8 +1244,46 @@ export function createBot(): Bot {
     }
   });
 
+  // ── Second Brain commands ────────────────────────────────────────────
+
+  // /brain — save text to vault inbox (file saving handled in document handler)
+  bot.command('brain', async (ctx) => {
+    if (!isAuthorised(ctx.chat!.id)) return;
+    const text = ctx.message?.text?.replace(/^\/brain\s*/i, '').trim();
+    if (!text) {
+      await ctx.reply('Manda junto o texto ou arquivo para salvar no brain.\nEx: /brain lembrar de revisar o deploy amanha');
+      return;
+    }
+    await saveToBrain(ctx, text);
+  });
+
+  // /daily or /dia — morning standup via Claude with vault context
+  for (const cmd of ['daily', 'dia'] as const) {
+    bot.command(cmd, async (ctx) => {
+      if (!isAuthorised(ctx.chat!.id)) return;
+      const vaultPrompt = `Read the vault at ${VAULT_PATH_RESOLVED}. ` +
+        `Check today's daily note at ${VAULT_PATH_RESOLVED}/daily/ (create if missing). ` +
+        `Check ${VAULT_PATH_RESOLVED}/inbox/ for unprocessed files. ` +
+        `Read ${VAULT_PATH_RESOLVED}/memory.md for recent context. ` +
+        `Summarize top 3 priorities. Ask: "What are we working on today?"`;
+      handleMessage(ctx, vaultPrompt).catch((err) => logger.error({ err }, 'Daily command error'));
+    });
+  }
+
+  // /tldr or /resuma — save session summary to vault
+  for (const cmd of ['tldr', 'resuma'] as const) {
+    bot.command(cmd, async (ctx) => {
+      if (!isAuthorised(ctx.chat!.id)) return;
+      const vaultPrompt = `Summarize this conversation: decisions, key things to remember, next actions. ` +
+        `Save as a markdown note in the most relevant folder under ${VAULT_PATH_RESOLVED} ` +
+        `(projects/, research/, or daily/). ` +
+        `Also append a brief summary to ${VAULT_PATH_RESOLVED}/memory.md with today's date.`;
+      handleMessage(ctx, vaultPrompt).catch((err) => logger.error({ err }, 'TLDR command error'));
+    });
+  }
+
   // Text messages — and any slash commands not owned by this bot (skills, e.g. /todo /gmail)
-  const OWN_COMMANDS = new Set(['/start', '/help', '/newchat', '/respin', '/voice', '/model', '/claude', '/ollama', '/codex', '/openrouter', '/models', '/orq', '/memory', '/forget', '/chatid', '/wa', '/slack', '/dashboard', '/stop']);
+  const OWN_COMMANDS = new Set(['/start', '/help', '/newchat', '/respin', '/voice', '/model', '/claude', '/ollama', '/codex', '/openrouter', '/models', '/orq', '/memory', '/forget', '/chatid', '/wa', '/slack', '/dashboard', '/stop', '/brain', '/daily', '/dia', '/tldr', '/resuma']);
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text;
     const chatIdStr = ctx.chat!.id.toString();
@@ -1205,6 +1292,17 @@ export function createBot(): Bot {
     if (text.startsWith('/')) {
       const cmd = text.split(/[\s@]/)[0].toLowerCase();
       if (OWN_COMMANDS.has(cmd)) return; // already handled by bot.command() above
+    }
+
+    // ── Second Brain trigger (natural language) ─────────────────────
+    if (isBrainTrigger(text)) {
+      const content = stripBrainTrigger(text);
+      if (content) {
+        await saveToBrain(ctx, content);
+      } else {
+        await ctx.reply('Manda o conteudo junto. Ex: "guarda isso: reuniao com cliente dia 20"');
+      }
+      return;
     }
 
     // ── WhatsApp state machine ──────────────────────────────────────
@@ -1444,7 +1542,13 @@ export function createBot(): Bot {
       const filename = doc.file_name ?? 'file';
       const localPath = await downloadMedia(activeBotToken, doc.file_id, filename);
       clearInterval(typingInterval);
-      const msg = buildDocumentMessage(localPath, filename, ctx.message.caption ?? undefined);
+      // Check if caption triggers brain save
+      const caption = ctx.message.caption ?? '';
+      if (isBrainTrigger(caption) || caption.toLowerCase().startsWith('/brain')) {
+        await saveFileToBrain(ctx, localPath, filename);
+        return;
+      }
+      const msg = buildDocumentMessage(localPath, filename, caption || undefined);
       handleMessage(ctx, msg).catch((err) => logger.error({ err }, 'Unhandled document message error'));
     } catch (err) {
       clearInterval(typingInterval);
