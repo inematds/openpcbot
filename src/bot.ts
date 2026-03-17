@@ -853,6 +853,10 @@ export function createBot(): Bot {
       'Triggers: "guarda isso", "salva no brain", "memoriza isso"\n' +
       'Arquivo + legenda /brain ou "guarda isso" salva no vault\n\n' +
 
+      '<b>Google Workspace</b>\n' +
+      'Via /claude, o bot acessa Gmail, Calendar, Drive, Docs, Sheets, Tasks, YouTube usando o gws CLI.\n' +
+      'Ex: "quantas mensagens tenho no inbox", "agenda de amanha", "lista meus arquivos no Drive"\n\n' +
+
       '<b>Other</b>\n' +
       '/voice — Toggle voice mode\n' +
       '/memory — View recent memories\n' +

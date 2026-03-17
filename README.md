@@ -31,6 +31,7 @@ Inclui um sistema de "segundo cerebro" que armazena notas, documentos e contexto
 | Voice STT | Groq Whisper |
 | Voice TTS | ElevenLabs / Gradium / macOS say |
 | Second Brain | Vault local (.md) + Gemini/Claude/Ollama para processamento |
+| Google Workspace | gws CLI (`@googleworkspace/cli`) — Gmail, Calendar, Drive, Docs, Sheets, Tasks, YouTube |
 | Servico | systemd user service |
 
 ---
@@ -76,6 +77,7 @@ O Claude tem acesso completo: bash, file system, web search, MCP servers, skills
 - **Hive mind** para logs cross-agent
 - **Project resolver** para navegacao entre projetos locais
 - **Second Brain** — vault de notas com comandos /brain, /daily, /tldr e triggers naturais
+- **Google Workspace** — Gmail, Calendar, Drive, Docs, Sheets, Tasks, YouTube via gws CLI
 
 ---
 
@@ -512,6 +514,7 @@ Variaveis principais em `.env` (ver `.env.example` para lista completa):
 | `ELEVENLABS_VOICE_ID` | Nao | ID da voz clonada no ElevenLabs |
 | `DASHBOARD_TOKEN` | Nao | Token para acesso ao dashboard |
 | `SLACK_USER_TOKEN` | Nao | Token Slack (xoxp-) |
+| Google Workspace | Nao | Instala `npm i -g @googleworkspace/cli` e roda `gws auth login` |
 
 ---
 
@@ -693,25 +696,86 @@ Usa sua conta WhatsApp existente via Linked Devices. Sem API key.
 
 No Telegram: `/wa` lista chats. Numero para abrir, `r texto` para responder.
 
-### Gmail e Google Calendar (skills)
+### Google Workspace (gws CLI)
 
-Requerem OAuth do Google (uma vez so).
+Acesso completo ao Google Workspace: Gmail, Calendar, Drive, Docs, Sheets, Slides, Tasks, YouTube, Chat, Keep, Meet, Forms, e mais.
 
-1. Cria projeto no [Google Cloud Console](https://console.cloud.google.com)
-2. Ativa Gmail API e Calendar API
-3. Cria credenciais OAuth (Desktop app)
-4. Baixa `credentials.json` para `~/.config/gmail/`
-5. Roda auth uma vez:
-   ```bash
-   CLAUDECLAW_DIR=/home/nmaldaner/projetos/openpcbot ~/.venv/bin/python3 ~/.config/gmail/gmail.py auth
-   ```
-6. Copia skills:
-   ```bash
-   cp -r skills/gmail ~/.claude/skills/
-   cp -r skills/google-calendar ~/.claude/skills/
-   ```
+Usa o [Google Workspace CLI](https://github.com/googleworkspace/cli) oficial. O Claude acessa tudo via Bash com o comando `gws`.
 
-Ver instrucoes detalhadas em cada skill: `skills/gmail/SKILL.md` e `skills/google-calendar/SKILL.md`.
+**Instalacao:**
+
+```bash
+npm i -g @googleworkspace/cli
+```
+
+**Setup (uma vez so):**
+
+```bash
+# Opcao 1: Setup automatico (cria projeto GCP + OAuth, requer gcloud)
+gws auth setup --login
+
+# Opcao 2: Manual (se ja tem projeto GCP)
+# 1. Cria OAuth client em console.cloud.google.com
+# 2. Baixa credentials.json
+# 3. Move para ~/.config/gws/client_secret.json
+gws auth login
+```
+
+O `gws auth login` abre o browser para autorizacao. Depois disso, o token fica salvo criptografado em `~/.config/gws/`.
+
+**Verificar status:**
+
+```bash
+gws auth status
+```
+
+**Servicos disponiveis:**
+
+| Servico | O que faz | Exemplo |
+|---------|-----------|---------|
+| `gmail` | Email: ler, enviar, labels, buscar | `gws gmail users messages list --params '{"userId":"me"}'` |
+| `calendar` | Eventos, convites, disponibilidade | `gws calendar events list --params '{"calendarId":"primary"}'` |
+| `drive` | Arquivos, pastas, compartilhamento | `gws drive files list --params '{"pageSize":10}'` |
+| `sheets` | Ler e escrever planilhas | `gws sheets spreadsheets get --params '{"spreadsheetId":"..."}'` |
+| `docs` | Google Docs | `gws docs documents get --params '{"documentId":"..."}'` |
+| `slides` | Apresentacoes | `gws slides presentations get --params '{"presentationId":"..."}'` |
+| `tasks` | Tarefas | `gws tasks tasklists list` |
+| `people` | Contatos | `gws people people connections list --params '{"resourceName":"people/me"}'` |
+| `chat` | Google Chat | `gws chat spaces list` |
+| `keep` | Google Keep | `gws keep notes list` |
+| `meet` | Google Meet | `gws meet conferenceRecords list` |
+| `forms` | Google Forms | `gws forms forms get --params '{"formId":"..."}'` |
+| `youtube` | YouTube | `gws youtube channels list --params '{"mine":true,"part":"snippet"}'` |
+
+**Workflows prontos:**
+
+```bash
+gws workflow +standup-report     # Reunioes de hoje + tarefas abertas
+gws workflow +meeting-prep       # Preparacao para proxima reuniao
+gws workflow +email-to-task      # Converte email em tarefa
+gws workflow +weekly-digest      # Resumo semanal
+gws workflow +file-announce      # Anuncia arquivo no Chat
+```
+
+**Como usar via Telegram:**
+
+Pelo `/claude`, fale naturalmente:
+- "quantas mensagens tenho no inbox"
+- "agenda de amanha"
+- "lista meus arquivos recentes no Drive"
+- "cria um evento amanha as 15h chamado Reuniao"
+- "manda email para fulano@email.com sobre X"
+
+O Claude usa o `gws` automaticamente via Bash.
+
+**Flags uteis:**
+
+```
+--format table    Saida em tabela (mais legivel)
+--format csv      Saida em CSV
+--page-all        Pagina automaticamente todos os resultados
+--dry-run         Valida sem enviar (teste)
+```
 
 ---
 
