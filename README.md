@@ -509,8 +509,209 @@ Variaveis principais em `.env` (ver `.env.example` para lista completa):
 | `ANTHROPIC_API_KEY` | Nao | Pay-per-token (alternativa ao Max) |
 | `GROQ_API_KEY` | Nao | Voice input (Whisper) |
 | `ELEVENLABS_API_KEY` | Nao | Voice output |
+| `ELEVENLABS_VOICE_ID` | Nao | ID da voz clonada no ElevenLabs |
 | `DASHBOARD_TOKEN` | Nao | Token para acesso ao dashboard |
 | `SLACK_USER_TOKEN` | Nao | Token Slack (xoxp-) |
+
+---
+
+## Guia de Setup por Componente
+
+### Telegram Bot (obrigatorio)
+
+O bot Telegram e o unico requisito. Tudo mais e opcional.
+
+1. Abre o Telegram e busca **@BotFather**
+2. Envia `/newbot`
+3. Escolhe um nome e username (ex: `MeuBot`, `meu_bot`)
+4. Copia o token que o BotFather te da (tipo `1234567890:AAFxxxxxxx`)
+5. Cola no `.env`:
+   ```
+   TELEGRAM_BOT_TOKEN=1234567890:AAFxxxxxxx
+   ```
+6. Inicia o bot (`npm start`), manda `/chatid` no Telegram
+7. Cola o numero no `.env`:
+   ```
+   ALLOWED_CHAT_ID=123456789
+   ```
+8. Reinicia o bot
+
+### Claude Code (agente principal)
+
+O Claude roda via Claude Code CLI, que usa sua conta Anthropic.
+
+1. Instala: `npm i -g @anthropic-ai/claude-code`
+2. Loga: `claude login` (Free, Pro ou Max — qualquer plano funciona)
+3. Testa: `claude "oi"` no terminal
+
+**Nenhuma variavel no `.env` necessaria** — usa o login local. Se quiser pay-per-token:
+```
+ANTHROPIC_API_KEY=sk-ant-xxxxx
+```
+
+**Plano recomendado:** Max ($100 ou $200) com Opus. Sonnet funciona mas nao da conta de tarefas complexas com tools.
+
+### Ollama (LLM local, gratis)
+
+Roda modelos de linguagem localmente. Zero custo, resposta imediata.
+
+1. Instala: [ollama.ai](https://ollama.ai)
+2. Inicia: `ollama serve`
+3. Baixa um modelo: `ollama pull qwen3.5:35b-a3b`
+4. (Opcional) Modelo leve pro orquestrador: `ollama pull qwen2.5:14b`
+5. No `.env`:
+   ```
+   OLLAMA_URL=http://localhost:11434
+   OLLAMA_MODEL=qwen3.5:35b-a3b
+   OLLAMA_ROUTER_MODEL=qwen2.5:14b
+   ```
+
+**Modelos recomendados:**
+- Chat geral: `qwen3.5:35b-a3b` (rapido, bom em PT-BR)
+- Orquestrador: `qwen2.5:14b` (leve, so classifica)
+- Alternativas: `llama3.2`, `mistral`, `deepseek-r1`
+
+Ver modelos disponiveis: `ollama list` ou `/models` no Telegram.
+
+### OpenRouter (multi-modelo)
+
+Acesso a dezenas de modelos (DeepSeek, Llama, Mistral, etc.) por uma API so.
+
+1. Cria conta: [openrouter.ai](https://openrouter.ai)
+2. Gera API key: [openrouter.ai/keys](https://openrouter.ai/keys)
+3. No `.env`:
+   ```
+   OPENROUTER_API_KEY=sk-or-xxxxx
+   OPENROUTER_MODEL=deepseek/deepseek-chat
+   ```
+
+Troca modelo em tempo real: `/openrouter model google/gemini-2.0-flash-001`
+
+### Codex (OpenAI coding agent)
+
+Agent de codificacao da OpenAI. Funciona em modo full-auto.
+
+1. Instala: `npm i -g @openai/codex`
+2. No `.env`:
+   ```
+   OPENAI_API_KEY=sk-xxxxx
+   ```
+
+### Gemini — Google AI (gratis)
+
+Usado para processamento de video e pelo `/file-intel` (analise de documentos).
+
+1. Vai em [aistudio.google.com](https://aistudio.google.com)
+2. Clica "Get API key" — gratis, sem cartao
+3. No `.env`:
+   ```
+   GOOGLE_API_KEY=AIzaSyxxxxxxx
+   ```
+
+### Voz — Input (Groq Whisper)
+
+Transcreve notas de voz enviadas no Telegram.
+
+1. Cria conta: [console.groq.com](https://console.groq.com) — gratis, sem cartao
+2. Gera API key
+3. No `.env`:
+   ```
+   GROQ_API_KEY=gsk_xxxxx
+   ```
+
+Modelo usado: `whisper-large-v3`. Sem esta key, notas de voz sao ignoradas.
+
+### Voz — Output (ElevenLabs)
+
+Converte respostas do bot em audio. Pode clonar sua propria voz.
+
+1. Cria conta: [elevenlabs.io](https://elevenlabs.io)
+2. Vai em "Voice Lab" e clona sua voz (ou usa uma pronta)
+3. Copia o Voice ID (string tipo `21m00Tcm4TlvDq8ikWAM`)
+4. No `.env`:
+   ```
+   ELEVENLABS_API_KEY=xxxxx
+   ELEVENLABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM
+   ```
+
+**Alternativas de TTS (fallback automatico):**
+1. ElevenLabs (melhor qualidade, voz clonada)
+2. Gradium AI (`GRADIUM_API_KEY` + `GRADIUM_VOICE_ID`, gratis 45k creditos/mes)
+3. macOS `say` + ffmpeg (gratis, funciona offline, so Mac)
+
+Liga/desliga voz: `/voice` no Telegram. Ou diz "responde com voz" na mensagem.
+
+### Dashboard Web
+
+Painel web com metricas, tarefas, memoria, custos e chat em tempo real.
+
+1. Gera um token:
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
+   ```
+2. No `.env`:
+   ```
+   DASHBOARD_TOKEN=a3f8c2d1e5b794...
+   DASHBOARD_PORT=3141
+   ```
+3. Rebuild e restart
+4. No Telegram: `/dashboard` — o bot te manda o link
+
+**Acesso remoto (opcional):** use Cloudflare Tunnel. Ver detalhes em [CLAUDECLAW_GUIDE.md](./CLAUDECLAW_GUIDE.md#step-5-optional--access-from-your-phone-anywhere).
+
+### Slack
+
+Le e envia mensagens no Slack pela sua conta.
+
+1. Vai em [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From scratch**
+2. Nome: qualquer um. Workspace: o seu.
+3. **OAuth & Permissions** → **User Token Scopes** (nao Bot Token!) — adiciona:
+   - `channels:history`, `channels:read`, `chat:write`
+   - `groups:history`, `groups:read`
+   - `im:history`, `im:read`
+   - `mpim:history`, `mpim:read`
+   - `search:read`, `users:read`
+4. **Install to Workspace** → **Allow**
+5. Copia o **User OAuth Token** (comeca com `xoxp-`)
+6. No `.env`:
+   ```
+   SLACK_USER_TOKEN=xoxp-xxxxx
+   ```
+
+No Telegram: `/slack` lista conversas. Numero para abrir, `r texto` para responder.
+
+### WhatsApp
+
+Usa sua conta WhatsApp existente via Linked Devices. Sem API key.
+
+1. Inicia o daemon:
+   ```bash
+   npx tsx scripts/wa-daemon.ts
+   ```
+2. Escaneia o QR code no WhatsApp → Settings → Linked Devices
+3. Sessao salva em `store/waweb/` — so escaneia uma vez
+
+No Telegram: `/wa` lista chats. Numero para abrir, `r texto` para responder.
+
+### Gmail e Google Calendar (skills)
+
+Requerem OAuth do Google (uma vez so).
+
+1. Cria projeto no [Google Cloud Console](https://console.cloud.google.com)
+2. Ativa Gmail API e Calendar API
+3. Cria credenciais OAuth (Desktop app)
+4. Baixa `credentials.json` para `~/.config/gmail/`
+5. Roda auth uma vez:
+   ```bash
+   CLAUDECLAW_DIR=/home/nmaldaner/projetos/openpcbot ~/.venv/bin/python3 ~/.config/gmail/gmail.py auth
+   ```
+6. Copia skills:
+   ```bash
+   cp -r skills/gmail ~/.claude/skills/
+   cp -r skills/google-calendar ~/.claude/skills/
+   ```
+
+Ver instrucoes detalhadas em cada skill: `skills/gmail/SKILL.md` e `skills/google-calendar/SKILL.md`.
 
 ---
 
