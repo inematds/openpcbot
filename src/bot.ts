@@ -845,6 +845,14 @@ export function createBot(): Bot {
       '/dashboard — Web dashboard (usage per agent)\n' +
       '/models — Active models for each agent\n\n' +
 
+      '<b>Second Brain</b>\n' +
+      '/brain &lt;texto&gt; — Salva nota no vault inbox\n' +
+      '/daily ou /dia — Standup matinal com contexto do vault\n' +
+      '/tldr ou /resuma — Salva resumo da sessao no vault\n' +
+      '/file-intel — Processa docs (via /claude)\n' +
+      'Triggers: "guarda isso", "salva no brain", "memoriza isso"\n' +
+      'Arquivo + legenda /brain ou "guarda isso" salva no vault\n\n' +
+
       '<b>Other</b>\n' +
       '/voice — Toggle voice mode\n' +
       '/memory — View recent memories\n' +
