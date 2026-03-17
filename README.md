@@ -830,6 +830,44 @@ Pacotes: `google-genai`, `python-dotenv`, `python-docx`, `python-pptx`, `pillow`
 
 ---
 
+## Seguranca e Desempenho
+
+Auditoria completa em [docs/security-performance-audit.md](./docs/security-performance-audit.md).
+
+### Resumo de seguranca
+
+| Item | Severidade | Status |
+|------|-----------|--------|
+| `bypassPermissions` no Claude Agent | HIGH | Aceito (necessario, mitigado por ALLOWED_CHAT_ID) |
+| Token dashboard na URL (Referer leak) | HIGH | Pendente fix |
+| CORS wildcard no dashboard | HIGH | Pendente fix |
+| WA daemon sem auth (localhost) | MEDIUM | Aceito (localhost only) |
+| Respin prompt injection | MEDIUM | Aceito (self-injection only) |
+| Sem secrets no git | OK | .env no .gitignore |
+| SQL injection | OK | Prepared statements em tudo |
+
+### Resumo de desempenho
+
+| Item | Severidade | Status |
+|------|-----------|--------|
+| Maps em memoria sem eviction | MEDIUM | Negligivel para single-user |
+| System prompt Ollama evicted apos 20 msgs | LOW | Pendente fix |
+| Media cleanup so no startup | LOW | Pendente fix |
+| Tasks agendadas sequenciais | LOW | Aceito |
+| SQLite WAL mode | OK | Configurado corretamente |
+| SSE cleanup | OK | Solid |
+| Context tracking | OK | Overhead negligivel |
+
+### Notas de seguranca para uso
+
+- **Configure `ALLOWED_CHAT_ID` imediatamente** — sem ele, qualquer usuario Telegram pode usar o bot
+- O bot roda com acesso total a maquina (bash, files, rede) — rode somente na sua maquina pessoal
+- O dashboard expoe metricas e permite chat — proteja o token
+- O WA daemon roda em localhost:4242 sem auth — seguro se so voce tem acesso a maquina
+- `notify.sh` pode ser chamado pelo Claude — prompt injection via conteudo externo (paginas web, arquivos) poderia enviar mensagens inesperadas
+
+---
+
 ## Upstream
 
 - Baseado no [ClaudeClaw](https://github.com/earlyaidopters/claudeclaw). Docs completos em [CLAUDECLAW_GUIDE.md](./CLAUDECLAW_GUIDE.md).
