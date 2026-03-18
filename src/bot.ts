@@ -359,6 +359,7 @@ async function handleOllamaMessage(ctx: Context, message: string): Promise<void>
   const chatIdStr = chatId.toString();
   const model = chatOllamaModel.get(chatIdStr) ?? OLLAMA_MODEL;
 
+  await ctx.reply(`Ollama...`);
   await sendTyping(ctx.api, chatId);
   const typingInterval = setInterval(() => void sendTyping(ctx.api, chatId), TYPING_REFRESH_MS);
   setProcessing(chatIdStr, true);
@@ -434,6 +435,7 @@ async function handleOpenrouterMessage(ctx: Context, message: string): Promise<v
     return;
   }
 
+  await ctx.reply(`OpenRouter...`);
   await sendTyping(ctx.api, chatId);
   const typingInterval = setInterval(() => void sendTyping(ctx.api, chatId), TYPING_REFRESH_MS);
   setProcessing(chatIdStr, true);
@@ -486,6 +488,7 @@ async function handleCodexMessage(ctx: Context, message: string, cwd?: string): 
   const chatId = ctx.chat!.id;
   const chatIdStr = chatId.toString();
 
+  await ctx.reply(`Codex...`);
   await sendTyping(ctx.api, chatId);
   const typingInterval = setInterval(() => void sendTyping(ctx.api, chatId), TYPING_REFRESH_MS);
   setProcessing(chatIdStr, true);
@@ -533,9 +536,10 @@ async function handleRoutedMessage(ctx: Context, message: string, forceVoiceRepl
   const health = await ollamaHealthCheck(OLLAMA_ROUTER_MODEL);
   if (!health.ok) {
     logger.warn({ error: health.error }, 'Ollama router unavailable, falling back to Claude');
-    return handleMessage(ctx, message, forceVoiceReply, skipLog);
+    return handleMessage(ctx, message, forceVoiceReply, skipLog, true);
   }
 
+  await ctx.reply(`Roteando...`);
   await sendTyping(ctx.api, ctx.chat!.id);
 
   try {
@@ -577,7 +581,7 @@ async function handleRoutedMessage(ctx: Context, message: string, forceVoiceRepl
  * @param forceVoiceReply  When true, always respond with audio (e.g. user sent a voice note).
  * @param skipLog  When true, skip logging this turn to conversation_log (used by /respin to avoid self-referential logging).
  */
-async function handleMessage(ctx: Context, message: string, forceVoiceReply = false, skipLog = false): Promise<void> {
+async function handleMessage(ctx: Context, message: string, forceVoiceReply = false, skipLog = false, sendAck = false): Promise<void> {
   const chatId = ctx.chat!.id;
   const chatIdStr = chatId.toString();
 
@@ -594,6 +598,8 @@ async function handleMessage(ctx: Context, message: string, forceVoiceReply = fa
     );
     return;
   }
+
+  if (sendAck) await ctx.reply(`Claude...`);
 
   logger.info(
     { chatId, messageLen: message.length },
@@ -813,7 +819,7 @@ export function createBot(): Bot {
   bot.command('help', (ctx) => {
     if (!isAuthorised(ctx.chat!.id)) return;
     return ctx.reply(
-      '<b>OpenPCBot v2.0</b>\n\n' +
+      '<b>OpenPCBot v2.5.0</b>\n\n' +
 
       '<b>Built-in Agents</b>\n' +
       'Send a message without a command and Ollama responds directly (free, local).\n' +
@@ -1069,13 +1075,13 @@ export function createBot(): Bot {
     if (project && project.found) {
       const contextMsg = `[Project context: working directory is ${project.cwd}]\n\n${project.cleanedMessage}`;
       await ctx.reply(`Project: ${project.cwd}`);
-      handleMessage(ctx, contextMsg).catch((err) => logger.error({ err }, 'Claude command error'));
+      handleMessage(ctx, contextMsg, false, false, true).catch((err) => logger.error({ err }, 'Claude command error'));
     } else if (project && !project.found) {
       // Project doesn't exist yet -- pass to Claude so it can create it or understand intent
       const contextMsg = `[Project "${project.name}" does not exist yet. Projects directory is /home/nmaldaner/projetos/. The user may want to create it.]\n\n${arg}`;
-      handleMessage(ctx, contextMsg).catch((err) => logger.error({ err }, 'Claude command error'));
+      handleMessage(ctx, contextMsg, false, false, true).catch((err) => logger.error({ err }, 'Claude command error'));
     } else {
-      handleMessage(ctx, arg).catch((err) => logger.error({ err }, 'Claude command error'));
+      handleMessage(ctx, arg, false, false, true).catch((err) => logger.error({ err }, 'Claude command error'));
     }
   });
 
@@ -1343,7 +1349,7 @@ export function createBot(): Bot {
         `Check ${VAULT_PATH_RESOLVED}/inbox/ for unprocessed files. ` +
         `Read ${VAULT_PATH_RESOLVED}/memory.md for recent context. ` +
         `Summarize top 3 priorities. Ask: "What are we working on today?"`;
-      handleMessage(ctx, vaultPrompt).catch((err) => logger.error({ err }, 'Daily command error'));
+      handleMessage(ctx, vaultPrompt, false, false, true).catch((err) => logger.error({ err }, 'Daily command error'));
     });
   }
 
@@ -1355,7 +1361,7 @@ export function createBot(): Bot {
         `Save as a markdown note in the most relevant folder under ${VAULT_PATH_RESOLVED} ` +
         `(projects/, research/, or daily/). ` +
         `Also append a brief summary to ${VAULT_PATH_RESOLVED}/memory.md with today's date.`;
-      handleMessage(ctx, vaultPrompt).catch((err) => logger.error({ err }, 'TLDR command error'));
+      handleMessage(ctx, vaultPrompt, false, false, true).catch((err) => logger.error({ err }, 'TLDR command error'));
     });
   }
 
@@ -1537,7 +1543,7 @@ export function createBot(): Bot {
     // Priority: sticky agent > orchestrator > default (Ollama)
     const sticky = stickyAgent.get(chatIdStr);
     if (sticky === 'claude') {
-      handleMessage(ctx, text).catch((err) => logger.error({ err }, 'Sticky claude error'));
+      handleMessage(ctx, text, false, false, true).catch((err) => logger.error({ err }, 'Sticky claude error'));
     } else if (sticky === 'codex') {
       handleCodexMessage(ctx, text).catch((err) => logger.error({ err }, 'Sticky codex error'));
     } else if (sticky === 'openrouter') {
