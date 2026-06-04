@@ -17,6 +17,7 @@ import {
   markJobFailed,
   cancelJob,
   listJobs,
+  failStaleRunningJobs,
 } from './db.js';
 
 describe('database', () => {
@@ -295,6 +296,19 @@ describe('database', () => {
       const running = enqueueVideoJob({ skill: 'explicativo', input: 'Y', opts: null, notify: 'sempre', sendVideo: false, chatId: '1' });
       markJobRunning(running);
       expect(cancelJob(running)).toBe(false);
+    });
+
+    it('failStaleRunningJobs marks orphaned running jobs as failed', () => {
+      const a = enqueueVideoJob({ skill: 'explicativo', input: 'A', opts: null, notify: 'sempre', sendVideo: false, chatId: '1' });
+      const b = enqueueVideoJob({ skill: 'explicativo', input: 'B', opts: null, notify: 'sempre', sendVideo: false, chatId: '1' });
+      markJobRunning(a); // simula job interrompido por restart
+      const n = failStaleRunningJobs();
+      expect(n).toBe(1);
+      const ja = listJobs().find((j) => j.id === a)!;
+      expect(ja.status).toBe('failed');
+      expect(ja.error).toContain('reinício');
+      // b continua na fila, intacto
+      expect(listJobs().find((j) => j.id === b)!.status).toBe('queued');
     });
   });
 });

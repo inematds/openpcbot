@@ -454,6 +454,15 @@ export function markJobFailed(id: number, error: string): void {
     .run(error.slice(0, 500), now, id);
 }
 
+/** On boot: fail any job left 'running' by a crash/restart, so the queue can proceed. Returns how many were swept. */
+export function failStaleRunningJobs(): number {
+  const now = Math.floor(Date.now() / 1000);
+  const result = db.prepare(
+    `UPDATE video_jobs SET status = 'failed', error = 'interrompido por reinício do serviço', finished_at = ? WHERE status = 'running'`,
+  ).run(now);
+  return result.changes;
+}
+
 export function cancelJob(id: number): boolean {
   const result = db.prepare(`UPDATE video_jobs SET status = 'canceled' WHERE id = ? AND status = 'queued'`).run(id);
   return result.changes > 0;

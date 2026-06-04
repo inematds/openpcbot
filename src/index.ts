@@ -8,7 +8,7 @@ import { runAgent } from './agent.js';
 import { createBot } from './bot.js';
 import { ALLOWED_CHAT_ID, activeBotToken, STORE_DIR, PROJECT_ROOT, setAgentOverrides } from './config.js';
 import { startDashboard } from './dashboard.js';
-import { initDatabase } from './db.js';
+import { initDatabase, failStaleRunningJobs } from './db.js';
 import { logger } from './logger.js';
 import { cleanupOldUploads } from './media.js';
 import { runDecaySweep } from './memory.js';
@@ -108,6 +108,8 @@ async function main(): Promise<void> {
   }
 
   // Video queue worker — concorrência = 1, dispara runAgent por job
+  const swept = failStaleRunningJobs();
+  if (swept > 0) logger.warn({ swept }, 'Video queue: jobs running interrompidos por reinício foram marcados como failed');
   initVideoQueue({
     runAgent: (prompt) => runAgent(prompt, undefined, () => {}).then((r) => ({ text: r.text })),
     sendMessage: (chatId, text) =>
