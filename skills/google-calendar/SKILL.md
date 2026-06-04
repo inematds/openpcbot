@@ -1,158 +1,159 @@
 ---
 name: google-calendar
-description: Manage your Google Calendar from Claude Code. Create events with Meet links, send invites, check availability.
-allowed-tools: Bash(OPENPCBOT_DIR=* ~/.venv/bin/python3 ~/.config/calendar/gcal.py *)
+description: Manage Google Calendar from Claude Code. Multi-account (inematds, nei2014, nei2024). Create events with Meet links, send invites, check availability, delete events.
+allowed-tools: Bash(python3 ~/.config/calendar/gcal.py *)
 ---
 
 # Google Calendar Skill
 
-## Purpose
+## Accounts
 
-Create meetings with Google Meet links, send invites, check availability, and manage calendar events from Claude Code.
+| Alias     | Email                        |
+|-----------|------------------------------|
+| inematds  | inematds@gmail.com (default) |
+| nei2014   | nei.maldaner2014@gmail.com   |
+| nei2024   | nei.maldaner2024@gmail.com   |
 
-## Environment
-
-The calendar CLI reads credential paths from environment variables, loaded from OpenPCBot's `.env` via `OPENPCBOT_DIR`. Every command MUST use this prefix:
-
-```
-OPENPCBOT_DIR=/path/to/openpcbot
-```
-
-Your `.env` should contain:
-
-```
-GOOGLE_CREDS_PATH=~/.config/gmail/credentials.json
-GCAL_TOKEN_PATH=~/.config/calendar/token.json
-```
-
-If these aren't set, the script falls back to `~/.config/gmail/credentials.json` (shared with Gmail) and `~/.config/calendar/token.json`.
+Always use `--account ALIAS` to target a specific account. Omit for default (inematds).
 
 ## Commands
 
-### List upcoming events
+### List upcoming events (one account)
 
 ```bash
-OPENPCBOT_DIR=/path/to/openpcbot ~/.venv/bin/python3 ~/.config/calendar/gcal.py list
+python3 ~/.config/calendar/gcal.py list
+python3 ~/.config/calendar/gcal.py --account nei2014 list --days 7
 ```
 
-Returns next 10 events as JSON. Each entry has: `id`, `summary`, `start`, `end`, `attendees`, `meet_link`.
+Returns JSON array: `id`, `summary`, `start`, `end`, `attendees`, `meet_link`, `account`.
 
-### List events within N days
+### List from ALL accounts (aggregated, sorted by time)
 
 ```bash
-OPENPCBOT_DIR=/path/to/openpcbot ~/.venv/bin/python3 ~/.config/calendar/gcal.py list --days 7
+python3 ~/.config/calendar/gcal.py list --all --days 14
 ```
 
 ### Get event details
 
 ```bash
-OPENPCBOT_DIR=/path/to/openpcbot ~/.venv/bin/python3 ~/.config/calendar/gcal.py get <event_id>
+python3 ~/.config/calendar/gcal.py --account nei2014 get <event_id>
 ```
 
-### Create event with Meet link and invites
+### Create event
 
 ```bash
-OPENPCBOT_DIR=/path/to/openpcbot ~/.venv/bin/python3 ~/.config/calendar/gcal.py create "Meeting Title" "2026-03-15 10:00" --duration 30 --attendees "person@example.com,other@example.com" --meet
+python3 ~/.config/calendar/gcal.py --account inematds create \
+  --title "Reunião X" \
+  --date 2026-05-20 \
+  --time 14:00 \
+  --duration 60 \
+  --attendees "pessoa@exemplo.com,outro@exemplo.com" \
+  --meet \
+  --description "Pauta: ..."
 ```
 
-- `--duration` in minutes (default: 30)
-- `--attendees` comma-separated emails (sends invite emails automatically)
-- `--meet` adds a Google Meet video link
-- `--description` adds event description
-- `--location` adds location
+Flags:
+- `--title` (required)
+- `--date YYYY-MM-DD` (required)
+- `--time HH:MM` 24h, defaults to 09:00
+- `--duration N` minutes (default 60)
+- `--end-time HH:MM` alternative to duration
+- `--description TEXT`
+- `--attendees a@b.com,c@d.com` sends invites automatically
+- `--meet` adds Google Meet link
+- `--all-day` all-day event
 
-### Update an event
+### Update event
 
 ```bash
-OPENPCBOT_DIR=/path/to/openpcbot ~/.venv/bin/python3 ~/.config/calendar/gcal.py update <event_id> --title "New Title" --start "2026-03-16 14:00" --duration 60 --add-attendees "new@example.com" --meet
+python3 ~/.config/calendar/gcal.py --account inematds update <event_id> \
+  --field title --value "Novo Título"
 ```
 
-All flags are optional. Only provided fields are updated. Attendees are notified of changes.
+Fields: `title`, `description`, `date` (YYYY-MM-DD).
 
-### Cancel an event
+### Delete event
 
 ```bash
-OPENPCBOT_DIR=/path/to/openpcbot ~/.venv/bin/python3 ~/.config/calendar/gcal.py cancel <event_id>
+python3 ~/.config/calendar/gcal.py --account nei2014 delete <event_id>
 ```
 
-Cancels the event and sends cancellation notices to all attendees.
+Sends cancellation notices to all attendees.
 
 ### Check free/busy
 
 ```bash
-OPENPCBOT_DIR=/path/to/openpcbot ~/.venv/bin/python3 ~/.config/calendar/gcal.py freebusy "2026-03-15 09:00" "2026-03-15 17:00"
+python3 ~/.config/calendar/gcal.py --account inematds freebusy --date 2026-05-20
+python3 ~/.config/calendar/gcal.py --account inematds freebusy --date 2026-05-20 --days 3
 ```
 
-Shows busy time slots in the given range. If no conflicts, says "Time range is free."
-
-### Re-authenticate
+### Authenticate an account
 
 ```bash
-OPENPCBOT_DIR=/path/to/openpcbot ~/.venv/bin/python3 ~/.config/calendar/gcal.py auth
+python3 ~/.config/calendar/gcal.py --account inematds auth
+python3 ~/.config/calendar/gcal.py --account nei2014 auth
+python3 ~/.config/calendar/gcal.py --account nei2024 auth
 ```
+
+Browser opens for each account. Each saves its own token (`~/.config/calendar/token_ALIAS.json`). All three share the same `credentials.json` OAuth client.
 
 ## CRITICAL: Day-of-Week Verification
 
-**NEVER assume a date from a day name** (e.g. "Monday", "next Thursday"). Always verify before creating an event:
+**Never assume a date from a day name.** Always verify before creating:
 
 ```bash
-python3 -c "from datetime import date; d = date(2026, 3, 15); print(f'{d.strftime(\"%A\")} {d}')"
+python3 -c "from datetime import date; d = date(2026, 5, 20); print(d.strftime('%A %Y-%m-%d'))"
 ```
 
-- If the output day name does NOT match what was requested, find the correct date
-- This is a **blocking requirement**. Getting the day wrong sends a wrong invite to a real person.
+If output doesn't match what was requested, find the correct date. Wrong day = wrong invite to real people.
 
 ## Workflow
 
-1. If the user doesn't specify a time, check the calendar first with `list --days 7`
-2. **If a day name was mentioned, verify the date matches that day**
-3. Check `freebusy` for the proposed slot
-4. Create the event with `--meet` and `--attendees`
-5. Confirm: show title, time, **day of week**, attendees, and Meet link
+1. If no time given, check `list --days 7` first
+2. If a day name was mentioned, verify the date
+3. Check `freebusy` for the slot
+4. Show user what will be created (title, day+date, time, duration, attendees, Meet, account)
+5. Create only after confirmation
 
 ## Confirmation Before Creating
 
-Always show the user what you're about to create before running the command:
+Always show before executing:
+- Account (which email)
 - Title
-- **Day of week + Date/time** (e.g. "Monday Mar 15, 12:00pm")
+- Day of week + Date/time (e.g. "Quarta-feira, 20/05/2026 às 14h")
 - Duration
 - Attendees
 - Meet: yes/no
 
-Then ask for confirmation before executing.
-
-## Datetime Formats
-
-All of these work:
-- `2026-03-15 10:00`
-- `2026-03-15 2:00PM`
-- `2026-03-15T14:00`
-- `03/15/2026 10:00`
-
 ## Timezone
 
-The script defaults to **America/New_York**. To change it, edit the `TIMEZONE` constant in `gcal.py`.
+`America/Sao_Paulo` — set in the `TIMEZONE` constant in `gcal.py`.
 
 ## Defaults
 
-- Duration: 30 minutes (unless the user specifies otherwise)
-- Always add `--meet` unless the user specifically says no video call
-- Invites are sent to all attendees automatically
+- Duration: 60 minutes
+- Always add `--meet` unless user says no video
+- Invites sent to all attendees automatically
 
 ## One-Time Setup
 
-Uses the same Google Cloud project as Gmail. If `token.json` is missing:
+Requires `~/.config/gmail/credentials.json` (Google OAuth 2.0 Desktop Client). Same file used by Gmail skill.
+
+Authenticate each account once:
 
 ```bash
-OPENPCBOT_DIR=/path/to/openpcbot ~/.venv/bin/python3 ~/.config/calendar/gcal.py auth
+python3 ~/.config/calendar/gcal.py --account inematds auth
+python3 ~/.config/calendar/gcal.py --account nei2014 auth
+python3 ~/.config/calendar/gcal.py --account nei2024 auth
 ```
 
-Browser opens, sign in, approve Calendar access, done.
-
-If you haven't set up Gmail yet, you'll need `credentials.json` first. See the Gmail skill setup instructions.
+Tokens saved to:
+- `~/.config/calendar/token_inematds.json`
+- `~/.config/calendar/token_nei2014.json`
+- `~/.config/calendar/token_nei2024.json`
 
 ## Error Handling
 
-- If `credentials.json` missing, point to Gmail setup (same file)
-- If `token.json` missing, run auth automatically
-- If event creation fails, show error and ask the user what to do
+- `credentials.json` missing → point to Gmail skill setup (same file)
+- `token_ALIAS.json` missing → run `auth` for that account
+- Event creation fails → show error, ask what to do

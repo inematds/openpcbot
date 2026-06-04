@@ -813,6 +813,8 @@ export function createBot(): Bot {
     { command: 'dia', description: 'Standup matinal (alias /daily)' },
     { command: 'tldr', description: 'Save session summary to vault' },
     { command: 'resuma', description: 'Resumo da sessao (alias /tldr)' },
+    { command: 'memoryaudit', description: 'Audita memoria e CLAUDE.md (skill memory-audit)' },
+    { command: 'handoff', description: 'Resumo estruturado pra outro agente (skill session-handoff)' },
   ]).catch((err) => logger.warn({ err }, 'Failed to register bot commands with Telegram'));
 
   // /help — list available commands with usage guide
@@ -873,6 +875,32 @@ export function createBot(): Bot {
       '<b>Google Workspace</b>\n' +
       'Via /claude, o bot acessa Gmail, Calendar, Drive, Docs, Sheets, Tasks, YouTube usando o gws CLI.\n' +
       'Ex: "quantas mensagens tenho no inbox", "agenda de amanha", "lista meus arquivos no Drive"\n\n' +
+
+      '<b>inemaVOX (video local: transcrever / dublar / cortar / baixar)</b>\n' +
+      'Manda URL de YouTube, TikTok, Instagram, Vimeo, Facebook — vai pro vox automatico (default: transcrever).\n' +
+      '• "transcreve &lt;url&gt;" — Whisper GPU local\n' +
+      '• "baixa &lt;url&gt;" — so download\n' +
+      '• "dubla &lt;url&gt; pra &lt;lang&gt;" — dublagem completa\n' +
+      '• "corta &lt;url&gt;" — clips virais\n' +
+      '• "que jobs rodei", "status do job XXXX", "biblioteca de musica" — consulta\n' +
+      'Fila e serial no proprio vox (FIFO). Manda varias URLs que enfileira sozinho.\n\n' +
+
+      '<b>Skool</b>\n' +
+      'Manda URL skool.com/.../?p=... — default transcreve via Gemini (rapido).\n' +
+      '• "transcreve esse post" — Gemini cloud (default)\n' +
+      '• "transcreve local" / "via vox" — Whisper GPU local\n' +
+      '• "dubla esse post [pra &lt;lang&gt;]" — dublagem via vox\n\n' +
+
+      '<b>Manutencao</b>\n' +
+      '/memoryaudit — Audita memoria e CLAUDE.md (o que guardar, comprimir, remover)\n' +
+      '/handoff — Handoff estruturado pra outro agente / antes de /clear\n\n' +
+
+      '<b>Servicos locais</b>\n' +
+      '• inemaimg — http://localhost:8000 (geracao de imagem)\n' +
+      '• inemaupsk — http://localhost:8002 (upscaler)\n' +
+      '• inemavox — http://localhost:8010 (transcricao/dub/cortes)\n' +
+      '• iccmonit — http://localhost:9003 (monitor)\n' +
+      '• inemamailer — https://mailer.inema.club (Cloudflare Worker, envio de email multi-tenant via API key)\n\n' +
 
       '<b>Other</b>\n' +
       '/voice — Toggle voice mode\n' +
@@ -1365,8 +1393,22 @@ export function createBot(): Bot {
     });
   }
 
+  // /memoryaudit — run memory-audit skill via Claude
+  bot.command('memoryaudit', async (ctx) => {
+    if (!isAuthorised(ctx.chat!.id)) return;
+    const prompt = 'Invoque a skill memory-audit agora. Faca a auditoria completa de memoria e CLAUDE.md conforme o template da skill.';
+    handleMessage(ctx, prompt, false, false, true).catch((err) => logger.error({ err }, 'memoryaudit command error'));
+  });
+
+  // /handoff — run session-handoff skill via Claude
+  bot.command('handoff', async (ctx) => {
+    if (!isAuthorised(ctx.chat!.id)) return;
+    const prompt = 'Invoque a skill session-handoff agora. Produza o handoff estruturado conforme o template da skill, pra eu poder dar /clear ou passar pra outro agente.';
+    handleMessage(ctx, prompt, false, false, true).catch((err) => logger.error({ err }, 'handoff command error'));
+  });
+
   // Text messages — and any slash commands not owned by this bot (skills, e.g. /todo /gmail)
-  const OWN_COMMANDS = new Set(['/start', '/help', '/newchat', '/respin', '/voice', '/model', '/claude', '/ollama', '/codex', '/openrouter', '/models', '/orq', '/memory', '/forget', '/chatid', '/wa', '/slack', '/dashboard', '/stop', '/brain', '/daily', '/dia', '/tldr', '/resuma']);
+  const OWN_COMMANDS = new Set(['/start', '/help', '/newchat', '/respin', '/voice', '/model', '/claude', '/ollama', '/codex', '/openrouter', '/models', '/orq', '/memory', '/forget', '/chatid', '/wa', '/slack', '/dashboard', '/stop', '/brain', '/daily', '/dia', '/tldr', '/resuma', '/memoryaudit', '/handoff']);
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text;
     const chatIdStr = ctx.chat!.id.toString();

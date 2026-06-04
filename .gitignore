@@ -26,3 +26,9 @@ outputs/
 .idea/
 *.swp
 .wwebjs_cache/
+
+# Runtime transcription/dub outputs
+out/
+
+# Local Claude Code state
+.claude/
