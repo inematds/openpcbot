@@ -14,7 +14,9 @@ import { cleanupOldUploads } from './media.js';
 import { runDecaySweep } from './memory.js';
 import { initScheduler } from './scheduler.js';
 import { setTelegramConnected, setBotInfo } from './state.js';
-import { initVideoQueue } from './video-queue.js';
+import { initVideoQueue } from 'mkivideos';
+
+import { videoStore } from './video-store.js';
 
 // Parse --agent flag
 const agentFlagIndex = process.argv.indexOf('--agent');
@@ -110,7 +112,7 @@ async function main(): Promise<void> {
   // Video queue worker — concorrência = 1, dispara runAgent por job
   const swept = failStaleRunningJobs();
   if (swept > 0) logger.warn({ swept }, 'Video queue: jobs running interrompidos por reinício foram marcados como failed');
-  initVideoQueue({
+  initVideoQueue(videoStore, {
     runAgent: (prompt) => runAgent(prompt, undefined, () => {}).then((r) => ({ text: r.text })),
     sendMessage: (chatId, text) =>
       bot.api.sendMessage(chatId, text, { parse_mode: 'HTML' }).then(() => {}).catch((err) => logger.error({ err }, 'Video queue failed to send message')),
