@@ -25,10 +25,13 @@ import {
   getHiveMindEntries,
   getAgentTokenStats,
   getAgentRecentConversation,
+  listJobs,
+  cancelJob,
 } from './db.js';
 import { listAgentIds, loadAgentConfig } from './agent-config.js';
 import { processMessageFromDashboard } from './bot.js';
 import { getDashboardHtml } from './dashboard-html.js';
+import { getVideoDashboardHtml } from './video-dashboard-html.js';
 import { logger } from './logger.js';
 import { getTelegramConnected, getBotInfo, chatEvents, getIsProcessing, abortActiveQuery, ChatEvent } from './state.js';
 
@@ -95,6 +98,16 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     const id = c.req.param('id');
     resumeScheduledTask(id);
     return c.json({ ok: true });
+  });
+
+  // Video queue
+  app.get('/videos', (c) => c.html(getVideoDashboardHtml(DASHBOARD_TOKEN)));
+
+  app.get('/api/video-jobs', (c) => c.json({ jobs: listJobs() }));
+
+  app.post('/api/video-jobs/:id/cancel', (c) => {
+    const ok = cancelJob(Number(c.req.param('id')));
+    return c.json({ ok });
   });
 
   // Memory stats
