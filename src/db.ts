@@ -21,6 +21,24 @@ function createSchema(database: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_tasks_next_run ON scheduled_tasks(status, next_run);
 
+    CREATE TABLE IF NOT EXISTS video_jobs (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      skill        TEXT NOT NULL,
+      input        TEXT NOT NULL,
+      opts         TEXT,
+      status       TEXT NOT NULL DEFAULT 'queued',
+      result_path  TEXT,
+      error        TEXT,
+      notify       TEXT NOT NULL DEFAULT 'sempre',
+      send_video   INTEGER NOT NULL DEFAULT 0,
+      chat_id      TEXT,
+      created_at   INTEGER NOT NULL,
+      started_at   INTEGER,
+      finished_at  INTEGER
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_video_jobs_status ON video_jobs(status, created_at, id);
+
     CREATE TABLE IF NOT EXISTS sessions (
       chat_id    TEXT NOT NULL,
       agent_id   TEXT NOT NULL DEFAULT 'main',
@@ -371,6 +389,89 @@ export function pauseScheduledTask(id: string): void {
 
 export function resumeScheduledTask(id: string): void {
   db.prepare(`UPDATE scheduled_tasks SET status = 'active' WHERE id = ?`).run(id);
+}
+
+// ── Video jobs queue ──────────────────────────────────────────────
+
+export interface VideoJob {
+  id: number;
+  skill: 'explicativo' | 'curso' | 'demo';
+  input: string;
+  opts: string | null;
+  status: 'queued' | 'running' | 'done' | 'failed' | 'canceled';
+  result_path: string | null;
+  error: string | null;
+  notify: 'sempre' | 'silencioso';
+  send_video: number;
+  chat_id: string | null;
+  created_at: number;
+  started_at: number | null;
+  finished_at: number | null;
+}
+
+export function enqueueVideoJob(job: {
+  skill: VideoJob['skill'];
+  input: string;
+  opts: string | null;
+  notify: VideoJob['notify'];
+  sendVideo: boolean;
+  chatId: string | null;
+}): number {
+  const now = Math.floor(Date.now() / 1000);
+  const result = db.prepare(
+    `INSERT INTO video_jobs (skill, input, opts, status, notify, send_video, chat_id, created_at)
+     VALUES (?, ?, ?, 'queued', ?, ?, ?, ?)`,
+  ).run(job.skill, job.input, job.opts, job.notify, job.sendVideo ? 1 : 0, job.chatId, now);
+  return Number(result.lastInsertRowid);
+}
+
+export function getNextQueuedJob(): VideoJob | null {
+  return (db
+    .prepare(`SELECT * FROM video_jobs WHERE status = 'queued' ORDER BY created_at, id LIMIT 1`)
+    .get() as VideoJob | undefined) ?? null;
+}
+
+export function getRunningJob(): VideoJob | null {
+  return (db
+    .prepare(`SELECT * FROM video_jobs WHERE status = 'running' ORDER BY started_at LIMIT 1`)
+    .get() as VideoJob | undefined) ?? null;
+}
+
+export function markJobRunning(id: number): void {
+  const now = Math.floor(Date.now() / 1000);
+  db.prepare(`UPDATE video_jobs SET status = 'running', started_at = ? WHERE id = ?`).run(now, id);
+}
+
+export function markJobDone(id: number, resultPath: string): void {
+  const now = Math.floor(Date.now() / 1000);
+  db.prepare(`UPDATE video_jobs SET status = 'done', result_path = ?, finished_at = ? WHERE id = ?`)
+    .run(resultPath, now, id);
+}
+
+export function markJobFailed(id: number, error: string): void {
+  const now = Math.floor(Date.now() / 1000);
+  db.prepare(`UPDATE video_jobs SET status = 'failed', error = ?, finished_at = ? WHERE id = ?`)
+    .run(error.slice(0, 500), now, id);
+}
+
+/** On boot: fail any job left 'running' by a crash/restart, so the queue can proceed. Returns how many were swept. */
+export function failStaleRunningJobs(): number {
+  const now = Math.floor(Date.now() / 1000);
+  const result = db.prepare(
+    `UPDATE video_jobs SET status = 'failed', error = 'interrompido por reinício do serviço', finished_at = ? WHERE status = 'running'`,
+  ).run(now);
+  return result.changes;
+}
+
+export function cancelJob(id: number): boolean {
+  const result = db.prepare(`UPDATE video_jobs SET status = 'canceled' WHERE id = ? AND status = 'queued'`).run(id);
+  return result.changes > 0;
+}
+
+export function listJobs(limit = 50): VideoJob[] {
+  return db
+    .prepare(`SELECT * FROM video_jobs ORDER BY created_at DESC, id DESC LIMIT ?`)
+    .all(limit) as VideoJob[];
 }
 
 // ── WhatsApp message map ──────────────────────────────────────────────

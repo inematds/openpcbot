@@ -1,16 +1,20 @@
 import fs from 'fs';
 import path from 'path';
 
+import { InputFile } from 'grammy';
+
 import { loadAgentConfig } from './agent-config.js';
+import { runAgent } from './agent.js';
 import { createBot } from './bot.js';
 import { ALLOWED_CHAT_ID, activeBotToken, STORE_DIR, PROJECT_ROOT, setAgentOverrides } from './config.js';
 import { startDashboard } from './dashboard.js';
-import { initDatabase } from './db.js';
+import { initDatabase, failStaleRunningJobs } from './db.js';
 import { logger } from './logger.js';
 import { cleanupOldUploads } from './media.js';
 import { runDecaySweep } from './memory.js';
 import { initScheduler } from './scheduler.js';
 import { setTelegramConnected, setBotInfo } from './state.js';
+import { initVideoQueue } from './video-queue.js';
 
 // Parse --agent flag
 const agentFlagIndex = process.argv.indexOf('--agent');
@@ -102,6 +106,27 @@ async function main(): Promise<void> {
   } else {
     logger.warn('ALLOWED_CHAT_ID not set — scheduler disabled (no destination for results)');
   }
+
+  // Video queue worker — concorrência = 1, dispara runAgent por job
+  const swept = failStaleRunningJobs();
+  if (swept > 0) logger.warn({ swept }, 'Video queue: jobs running interrompidos por reinício foram marcados como failed');
+  initVideoQueue({
+    runAgent: (prompt) => runAgent(prompt, undefined, () => {}).then((r) => ({ text: r.text })),
+    sendMessage: (chatId, text) =>
+      bot.api.sendMessage(chatId, text, { parse_mode: 'HTML' }).then(() => {}).catch((err) => logger.error({ err }, 'Video queue failed to send message')),
+    sendDocument: (chatId, filePath) =>
+      bot.api.sendDocument(chatId, new InputFile(filePath)).then(() => {}).catch((err) => logger.error({ err }, 'Video queue failed to send document')),
+    moveVideo: async (src, dest) => {
+      const isFile = dest.toLowerCase().endsWith('.mp4');
+      const targetDir = isFile ? path.dirname(dest) : dest;
+      fs.mkdirSync(targetDir, { recursive: true });
+      const target = isFile ? dest : path.join(dest, path.basename(src));
+      try { fs.renameSync(src, target); }
+      catch { fs.copyFileSync(src, target); fs.unlinkSync(src); } // cross-device fallback
+      return target;
+    },
+  });
+  logger.info('Video queue worker started (concorrência = 1)');
 
   const shutdown = async () => {
     logger.info('Shutting down...');

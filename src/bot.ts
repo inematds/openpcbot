@@ -23,7 +23,8 @@ import { openrouterChat, openrouterAvailable, OpenRouterMessage } from './openro
 import { runCodex, codexAvailable } from './codex.js';
 import { routeMessage, AgentTarget } from './router.js';
 import { resolveProject } from './project-resolver.js';
-import { clearSession, getRecentConversation, getRecentMemories, getSession, setSession, lookupWaChatId, saveWaMessageMap, saveTokenUsage } from './db.js';
+import { clearSession, getRecentConversation, getRecentMemories, getSession, setSession, lookupWaChatId, saveWaMessageMap, saveTokenUsage, enqueueVideoJob, listJobs, cancelJob } from './db.js';
+import { parseVideoCommand, formatQueueList, mkiHelpText } from './video-queue.js';
 import { logger } from './logger.js';
 import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage } from './media.js';
 import { buildMemoryContext, saveConversationTurn } from './memory.js';
@@ -815,6 +816,7 @@ export function createBot(): Bot {
     { command: 'resuma', description: 'Resumo da sessao (alias /tldr)' },
     { command: 'memoryaudit', description: 'Audita memoria e CLAUDE.md (skill memory-audit)' },
     { command: 'handoff', description: 'Resumo estruturado pra outro agente (skill session-handoff)' },
+    { command: 'mkivideos', description: 'Fila de vídeos — /mkivideos help' },
   ]).catch((err) => logger.warn({ err }, 'Failed to register bot commands with Telegram'));
 
   // /help — list available commands with usage guide
@@ -890,6 +892,16 @@ export function createBot(): Bot {
       '• "transcreve esse post" — Gemini cloud (default)\n' +
       '• "transcreve local" / "via vox" — Whisper GPU local\n' +
       '• "dubla esse post [pra &lt;lang&gt;]" — dublagem via vox\n\n' +
+
+      '<b>mkivideos (fila de videos: explicativo / curso / demo)</b>\n' +
+      '/mkivideos explicativo &lt;assunto&gt; — video explicativo\n' +
+      '/mkivideos curso &lt;link&gt; — videos do curso INEMA\n' +
+      '/mkivideos demo &lt;link do app&gt; — video demonstrativo\n' +
+      '/mkivideos fila — ver a fila (1 por vez, FIFO)\n' +
+      '/mkivideos fila cancelar &lt;id&gt; — cancela um job da fila\n' +
+      '/mkivideos help — parametros e flags\n' +
+      'Flags: --vertical (9:16), --enviar (manda o .mp4), --silencioso, --pasta &lt;caminho&gt;\n' +
+      'Painel da fila: /videos no dashboard.\n\n' +
 
       '<b>Manutencao</b>\n' +
       '/memoryaudit — Audita memoria e CLAUDE.md (o que guardar, comprimir, remover)\n' +
@@ -1407,8 +1419,42 @@ export function createBot(): Bot {
     handleMessage(ctx, prompt, false, false, true).catch((err) => logger.error({ err }, 'handoff command error'));
   });
 
+  // /mkivideos — unified video queue command
+  bot.command('mkivideos', (ctx) => {
+    if (!isAuthorised(ctx.chat!.id)) return;
+    const raw = (String(ctx.match ?? '')).trim();
+    const first = (raw.split(/\s+/)[0] ?? '').toLowerCase();
+
+    if (first === '' || first === 'help' || first === 'ajuda') {
+      return ctx.reply(mkiHelpText(), { parse_mode: 'HTML' });
+    }
+
+    if (first === 'fila') {
+      const rest = raw.slice(first.length).trim();
+      const cancelMatch = rest.match(/^cancelar\s+(\d+)$/i);
+      if (cancelMatch) {
+        const ok = cancelJob(Number(cancelMatch[1]));
+        return ctx.reply(ok ? `🗑️ Job #${cancelMatch[1]} cancelado.` : `Não consegui cancelar #${cancelMatch[1]} (já rodando ou não existe).`);
+      }
+      return ctx.reply(formatQueueList(listJobs()));
+    }
+
+    const parsed = parseVideoCommand(raw);
+    if (!parsed.ok) return ctx.reply(`${parsed.error}\n\nUse /mkivideos help.`);
+    const optsObj: { vertical?: boolean; dest?: string } = {};
+    if (parsed.vertical) optsObj.vertical = true;
+    if (parsed.dest) optsObj.dest = parsed.dest;
+    const opts = Object.keys(optsObj).length ? JSON.stringify(optsObj) : null;
+    const id = enqueueVideoJob({
+      skill: parsed.skill, input: parsed.input, opts,
+      notify: parsed.silent ? 'silencioso' : 'sempre',
+      sendVideo: parsed.send, chatId: ctx.chat!.id.toString(),
+    });
+    return ctx.reply(`📥 Vídeo enfileirado #${id} (${parsed.skill})${parsed.dest ? ` → ${parsed.dest}` : ''}${parsed.send ? ' — te envio o arquivo ao terminar' : ''}.`);
+  });
+
   // Text messages — and any slash commands not owned by this bot (skills, e.g. /todo /gmail)
-  const OWN_COMMANDS = new Set(['/start', '/help', '/newchat', '/respin', '/voice', '/model', '/claude', '/ollama', '/codex', '/openrouter', '/models', '/orq', '/memory', '/forget', '/chatid', '/wa', '/slack', '/dashboard', '/stop', '/brain', '/daily', '/dia', '/tldr', '/resuma', '/memoryaudit', '/handoff']);
+  const OWN_COMMANDS = new Set(['/start', '/help', '/newchat', '/respin', '/voice', '/model', '/claude', '/ollama', '/codex', '/openrouter', '/models', '/orq', '/memory', '/forget', '/chatid', '/wa', '/slack', '/dashboard', '/stop', '/brain', '/daily', '/dia', '/tldr', '/resuma', '/memoryaudit', '/handoff', '/mkivideos']);
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text;
     const chatIdStr = ctx.chat!.id.toString();

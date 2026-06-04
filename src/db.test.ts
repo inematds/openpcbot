@@ -9,6 +9,15 @@ import {
   getRecentMemories,
   touchMemory,
   decayMemories,
+  enqueueVideoJob,
+  getNextQueuedJob,
+  getRunningJob,
+  markJobRunning,
+  markJobDone,
+  markJobFailed,
+  cancelJob,
+  listJobs,
+  failStaleRunningJobs,
 } from './db.js';
 
 describe('database', () => {
@@ -228,6 +237,78 @@ describe('database', () => {
       const after = getRecentMemories('chat1', 1)[0];
       // Salience should be unchanged since memory was created < 1 day ago
       expect(after.salience).toBe(before.salience);
+    });
+  });
+
+  describe('video_jobs queue', () => {
+    it('enqueue creates a queued job and returns its id', () => {
+      const id = enqueueVideoJob({
+        skill: 'explicativo', input: 'Teorema de Bayes',
+        opts: null, notify: 'sempre', sendVideo: false, chatId: '123',
+      });
+      expect(id).toBeGreaterThan(0);
+      const job = getNextQueuedJob();
+      expect(job?.id).toBe(id);
+      expect(job?.status).toBe('queued');
+      expect(job?.skill).toBe('explicativo');
+    });
+
+    it('getNextQueuedJob is FIFO by created_at then id', () => {
+      const a = enqueueVideoJob({ skill: 'explicativo', input: 'A', opts: null, notify: 'sempre', sendVideo: false, chatId: '1' });
+      const b = enqueueVideoJob({ skill: 'explicativo', input: 'B', opts: null, notify: 'sempre', sendVideo: false, chatId: '1' });
+      expect(getNextQueuedJob()?.id).toBe(a);
+      markJobRunning(a);
+      markJobDone(a, '/tmp/a.mp4');
+      expect(getNextQueuedJob()?.id).toBe(b);
+    });
+
+    it('getRunningJob returns the running job or null', () => {
+      expect(getRunningJob()).toBeNull();
+      const id = enqueueVideoJob({ skill: 'demo', input: 'http://x', opts: null, notify: 'sempre', sendVideo: false, chatId: '1' });
+      markJobRunning(id);
+      expect(getRunningJob()?.id).toBe(id);
+    });
+
+    it('markJobDone sets status, result_path and finished_at', () => {
+      const id = enqueueVideoJob({ skill: 'explicativo', input: 'X', opts: null, notify: 'sempre', sendVideo: false, chatId: '1' });
+      markJobRunning(id);
+      markJobDone(id, '/out/x.mp4');
+      const done = listJobs().find((j) => j.id === id)!;
+      expect(done.status).toBe('done');
+      expect(done.result_path).toBe('/out/x.mp4');
+      expect(done.finished_at).toBeGreaterThan(0);
+    });
+
+    it('markJobFailed records the error and frees the queue', () => {
+      const id = enqueueVideoJob({ skill: 'explicativo', input: 'X', opts: null, notify: 'sempre', sendVideo: false, chatId: '1' });
+      markJobRunning(id);
+      markJobFailed(id, 'render quebrou');
+      const failed = listJobs().find((j) => j.id === id)!;
+      expect(failed.status).toBe('failed');
+      expect(failed.error).toBe('render quebrou');
+      expect(getRunningJob()).toBeNull();
+    });
+
+    it('cancelJob only cancels queued jobs', () => {
+      const id = enqueueVideoJob({ skill: 'explicativo', input: 'X', opts: null, notify: 'sempre', sendVideo: false, chatId: '1' });
+      expect(cancelJob(id)).toBe(true);
+      expect(listJobs().find((j) => j.id === id)!.status).toBe('canceled');
+      const running = enqueueVideoJob({ skill: 'explicativo', input: 'Y', opts: null, notify: 'sempre', sendVideo: false, chatId: '1' });
+      markJobRunning(running);
+      expect(cancelJob(running)).toBe(false);
+    });
+
+    it('failStaleRunningJobs marks orphaned running jobs as failed', () => {
+      const a = enqueueVideoJob({ skill: 'explicativo', input: 'A', opts: null, notify: 'sempre', sendVideo: false, chatId: '1' });
+      const b = enqueueVideoJob({ skill: 'explicativo', input: 'B', opts: null, notify: 'sempre', sendVideo: false, chatId: '1' });
+      markJobRunning(a); // simula job interrompido por restart
+      const n = failStaleRunningJobs();
+      expect(n).toBe(1);
+      const ja = listJobs().find((j) => j.id === a)!;
+      expect(ja.status).toBe('failed');
+      expect(ja.error).toContain('reinício');
+      // b continua na fila, intacto
+      expect(listJobs().find((j) => j.id === b)!.status).toBe('queued');
     });
   });
 });
