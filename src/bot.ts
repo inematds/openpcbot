@@ -893,6 +893,16 @@ export function createBot(): Bot {
       '• "transcreve local" / "via vox" — Whisper GPU local\n' +
       '• "dubla esse post [pra &lt;lang&gt;]" — dublagem via vox\n\n' +
 
+      '<b>mkivideos (fila de videos: explicativo / curso / demo)</b>\n' +
+      '/mkivideos explicativo &lt;assunto&gt; — video explicativo\n' +
+      '/mkivideos curso &lt;link&gt; — videos do curso INEMA\n' +
+      '/mkivideos demo &lt;link do app&gt; — video demonstrativo\n' +
+      '/mkivideos fila — ver a fila (1 por vez, FIFO)\n' +
+      '/mkivideos fila cancelar &lt;id&gt; — cancela um job da fila\n' +
+      '/mkivideos help — parametros e flags\n' +
+      'Flags: --vertical (9:16), --enviar (manda o .mp4), --silencioso, --pasta &lt;caminho&gt;\n' +
+      'Painel da fila: /videos no dashboard.\n\n' +
+
       '<b>Manutencao</b>\n' +
       '/memoryaudit — Audita memoria e CLAUDE.md (o que guardar, comprimir, remover)\n' +
       '/handoff — Handoff estruturado pra outro agente / antes de /clear\n\n' +
