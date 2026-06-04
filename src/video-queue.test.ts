@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { parseVideoCommand, buildVideoPrompt, extractResultPath, processNextJob } from './video-queue.js';
-import { _initTestDatabase, enqueueVideoJob, listJobs, markJobRunning, getRunningJob } from './db.js';
+import { parseVideoCommand, buildVideoPrompt, extractResultPath, processNextJob, formatQueueList, mkiHelpText } from './video-queue.js';
+import { _initTestDatabase, enqueueVideoJob, listJobs, markJobRunning, getRunningJob, type VideoJob } from './db.js';
+
+const j = (over: Partial<VideoJob>): VideoJob => ({
+  id: 1, skill: 'explicativo', input: 'X', opts: null, status: 'queued',
+  result_path: null, error: null, notify: 'sempre', send_video: 0,
+  chat_id: '1', created_at: 0, started_at: null, finished_at: null, ...over,
+});
 
 describe('parseVideoCommand', () => {
   it('parses skill + input', () => {
@@ -123,5 +129,31 @@ describe('processNextJob', () => {
     await processNextJob(deps('RESULT: /out/x.mp4'));
     expect(sent.length).toBe(0);                 // sem notificação de texto
     expect(docs).toEqual([{ chatId: '7', path: '/out/x.mp4' }]); // mas o arquivo vai
+  });
+});
+
+describe('formatQueueList', () => {
+  it('says empty when no active jobs', () => {
+    expect(formatQueueList([])).toContain('vazia');
+  });
+  it('lists running first then queued', () => {
+    const out = formatQueueList([
+      j({ id: 2, status: 'queued', input: 'B' }),
+      j({ id: 1, status: 'running', input: 'A' }),
+    ]);
+    expect(out.indexOf('#1')).toBeLessThan(out.indexOf('#2'));
+    expect(out).toContain('▶️');
+  });
+  it('ignores done/failed/canceled', () => {
+    expect(formatQueueList([j({ id: 9, status: 'done' })])).toContain('vazia');
+  });
+});
+
+describe('mkiHelpText', () => {
+  it('documents the 3 skills, the flags and the fila subcommand', () => {
+    const h = mkiHelpText();
+    for (const s of ['explicativo', 'curso', 'demo', '--vertical', '--enviar', '--silencioso', 'fila']) {
+      expect(h).toContain(s);
+    }
   });
 });

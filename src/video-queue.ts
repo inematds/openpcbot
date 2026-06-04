@@ -108,6 +108,44 @@ export async function processNextJob(deps: QueueDeps): Promise<void> {
   }
 }
 
+/** Renders the active queue (running + queued) for `/mkivideos fila`. */
+export function formatQueueList(jobs: VideoJob[]): string {
+  const running = jobs.filter((j) => j.status === 'running');
+  const queued = jobs.filter((j) => j.status === 'queued').sort((a, b) => a.created_at - b.created_at || a.id - b.id);
+  const active = [...running, ...queued];
+  if (active.length === 0) return '📭 Fila vazia.';
+  const line = (jb: VideoJob) => {
+    const icon = jb.status === 'running' ? '▶️' : '⏳';
+    const inp = jb.input.length > 40 ? jb.input.slice(0, 40) + '…' : jb.input;
+    return `${icon} #${jb.id} ${jb.skill} — ${inp}`;
+  };
+  return ['📋 Fila de vídeos:', ...active.map(line)].join('\n');
+}
+
+/** Help text shown by `/mkivideos help` (and when called with no args). */
+export function mkiHelpText(): string {
+  return [
+    '🎬 <b>/mkivideos</b> — fila de vídeos (1 por vez)',
+    '',
+    '<b>Criar vídeo:</b>',
+    '  /mkivideos explicativo &lt;assunto&gt;',
+    '  /mkivideos curso &lt;link do curso&gt;',
+    '  /mkivideos demo &lt;link do app&gt;',
+    '',
+    '<b>Flags (no fim):</b>',
+    '  --vertical    gera 9:16 (Shorts/Reels) em vez do padrão',
+    '  --enviar      anexa o .mp4 no Telegram ao terminar',
+    '  --silencioso  não notifica; aparece só no painel',
+    '',
+    '<b>Fila:</b>',
+    '  /mkivideos fila               mostra a fila',
+    '  /mkivideos fila cancelar &lt;id&gt;  cancela um job que ainda espera',
+    '  /mkivideos help               esta ajuda',
+    '',
+    'Painel: http://localhost:3141/videos?token=…',
+  ].join('\n');
+}
+
 let queueTimer: NodeJS.Timeout | undefined;
 
 /** Wires the worker to a 15s tick. Call once at boot. */
