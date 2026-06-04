@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { parseVideoCommand, buildVideoPrompt, extractResultPath } from './video-queue.js';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { parseVideoCommand, buildVideoPrompt, extractResultPath, processNextJob } from './video-queue.js';
+import { _initTestDatabase, enqueueVideoJob, listJobs, markJobRunning, getRunningJob } from './db.js';
 
 describe('parseVideoCommand', () => {
   it('parses skill + input', () => {
@@ -66,5 +67,54 @@ describe('extractResultPath', () => {
   });
   it('returns null when no RESULT line', () => {
     expect(extractResultPath('done, no marker')).toBeNull();
+  });
+});
+
+describe('processNextJob', () => {
+  const sent: string[] = [];
+  const docs: Array<{ chatId: string; path: string }> = [];
+  const deps = (agentText: string | null) => ({
+    runAgent: async () => ({ text: agentText }),
+    sendMessage: async (chatId: string, text: string) => { sent.push(text); },
+    sendDocument: async (chatId: string, path: string) => { docs.push({ chatId, path }); },
+  });
+
+  beforeEach(() => { _initTestDatabase(); sent.length = 0; docs.length = 0; });
+
+  it('does nothing when a job is already running', async () => {
+    const id = enqueueVideoJob({ skill: 'explicativo', input: 'X', opts: null, notify: 'sempre', sendVideo: false, chatId: '1' });
+    markJobRunning(id);
+    const id2 = enqueueVideoJob({ skill: 'explicativo', input: 'Y', opts: null, notify: 'sempre', sendVideo: false, chatId: '1' });
+    await processNextJob(deps('RESULT: /a.mp4'));
+    expect(listJobs().find((j) => j.id === id2)!.status).toBe('queued');
+  });
+
+  it('runs the next job and marks it done on RESULT', async () => {
+    const id = enqueueVideoJob({ skill: 'explicativo', input: 'X', opts: null, notify: 'sempre', sendVideo: false, chatId: '99' });
+    await processNextJob(deps('trabalho...\nRESULT: /out/x.mp4'));
+    const job = listJobs().find((j) => j.id === id)!;
+    expect(job.status).toBe('done');
+    expect(job.result_path).toBe('/out/x.mp4');
+    expect(sent.some((m) => m.includes('pronto'))).toBe(true);
+    expect(docs.length).toBe(0);
+  });
+
+  it('attaches the file when send_video is set', async () => {
+    enqueueVideoJob({ skill: 'explicativo', input: 'X', opts: null, notify: 'sempre', sendVideo: true, chatId: '99' });
+    await processNextJob(deps('RESULT: /out/x.mp4'));
+    expect(docs).toEqual([{ chatId: '99', path: '/out/x.mp4' }]);
+  });
+
+  it('marks failed when no RESULT and keeps queue free', async () => {
+    const id = enqueueVideoJob({ skill: 'explicativo', input: 'X', opts: null, notify: 'sempre', sendVideo: false, chatId: '1' });
+    await processNextJob(deps('ERRO: render quebrou'));
+    expect(listJobs().find((j) => j.id === id)!.status).toBe('failed');
+    expect(getRunningJob()).toBeNull();
+  });
+
+  it('does not notify when notify is silencioso', async () => {
+    enqueueVideoJob({ skill: 'explicativo', input: 'X', opts: null, notify: 'silencioso', sendVideo: false, chatId: '1' });
+    await processNextJob(deps('RESULT: /out/x.mp4'));
+    expect(sent.length).toBe(0);
   });
 });

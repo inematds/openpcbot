@@ -1,4 +1,4 @@
-import type { VideoJob } from './db.js';
+import { getNextQueuedJob, getRunningJob, markJobRunning, markJobDone, markJobFailed, type VideoJob } from './db.js';
 
 const SKILL_SLUGS: Record<VideoJob['skill'], string> = {
   explicativo: 'video-explicativo',
@@ -54,4 +54,60 @@ export function extractResultPath(text: string | null): string | null {
     if (m) found = m[1].trim();
   }
   return found;
+}
+
+export interface QueueDeps {
+  runAgent: (prompt: string) => Promise<{ text: string | null }>;
+  sendMessage: (chatId: string, text: string) => Promise<void>;
+  sendDocument: (chatId: string, path: string) => Promise<void>;
+}
+
+const SKILL_LABEL: Record<VideoJob['skill'], string> = {
+  explicativo: 'explicativo', curso: 'curso INEMA', demo: 'demonstrativo',
+};
+
+/** Processes at most one job. No-op if a job is already running (concorrência = 1). */
+export async function processNextJob(deps: QueueDeps): Promise<void> {
+  if (getRunningJob()) return;
+  const job = getNextQueuedJob();
+  if (!job) return;
+
+  markJobRunning(job.id);
+  const notify = job.notify === 'sempre' && job.chat_id;
+  if (notify) await deps.sendMessage(job.chat_id!, `▶️ Iniciando vídeo #${job.id} (${SKILL_LABEL[job.skill]})`);
+
+  try {
+    const opts = job.opts ? JSON.parse(job.opts) as { vertical?: boolean } : {};
+    const prompt = buildVideoPrompt({ skill: job.skill, input: job.input, vertical: !!opts.vertical });
+    const result = await deps.runAgent(prompt);
+    const path = extractResultPath(result.text);
+
+    if (!path) {
+      const reason = result.text?.split('\n').reverse().find((l) => /ERRO:/i.test(l))?.trim() || 'sem RESULT no output do agente';
+      markJobFailed(job.id, reason);
+      if (notify) await deps.sendMessage(job.chat_id!, `❌ Vídeo #${job.id} falhou: ${reason}`);
+      return;
+    }
+
+    markJobDone(job.id, path);
+    if (notify) {
+      await deps.sendMessage(job.chat_id!, `✅ Vídeo #${job.id} pronto — ${SKILL_LABEL[job.skill]}\n${path}`);
+      if (job.send_video) {
+        try { await deps.sendDocument(job.chat_id!, path); }
+        catch (e) { await deps.sendMessage(job.chat_id!, `(não consegui anexar o arquivo: ${(e as Error).message})`); }
+      }
+    }
+  } catch (e) {
+    const msg = (e as Error).message || String(e);
+    markJobFailed(job.id, msg);
+    if (notify) await deps.sendMessage(job.chat_id!, `❌ Vídeo #${job.id} falhou: ${msg}`);
+  }
+}
+
+let queueTimer: NodeJS.Timeout | undefined;
+
+/** Wires the worker to a 15s tick. Call once at boot. */
+export function initVideoQueue(deps: QueueDeps): void {
+  if (queueTimer) clearInterval(queueTimer);
+  queueTimer = setInterval(() => { void processNextJob(deps); }, 15_000);
 }
