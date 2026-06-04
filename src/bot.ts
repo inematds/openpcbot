@@ -24,7 +24,7 @@ import { runCodex, codexAvailable } from './codex.js';
 import { routeMessage, AgentTarget } from './router.js';
 import { resolveProject } from './project-resolver.js';
 import { clearSession, getRecentConversation, getRecentMemories, getSession, setSession, lookupWaChatId, saveWaMessageMap, saveTokenUsage, enqueueVideoJob, listJobs, cancelJob } from './db.js';
-import { parseVideoCommand, formatQueueList, mkiHelpText } from './video-queue.js';
+import { parseVideoCommand, formatQueueList, mkiHelpText } from 'mkivideos';
 import { logger } from './logger.js';
 import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage } from './media.js';
 import { buildMemoryContext, saveConversationTurn } from './memory.js';
