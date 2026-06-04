@@ -117,4 +117,11 @@ describe('processNextJob', () => {
     await processNextJob(deps('RESULT: /out/x.mp4'));
     expect(sent.length).toBe(0);
   });
+
+  it('sends the file even when notify is silencioso (send_video set)', async () => {
+    enqueueVideoJob({ skill: 'explicativo', input: 'X', opts: null, notify: 'silencioso', sendVideo: true, chatId: '7' });
+    await processNextJob(deps('RESULT: /out/x.mp4'));
+    expect(sent.length).toBe(0);                 // sem notificação de texto
+    expect(docs).toEqual([{ chatId: '7', path: '/out/x.mp4' }]); // mas o arquivo vai
+  });
 });

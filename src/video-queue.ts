@@ -77,7 +77,11 @@ export async function processNextJob(deps: QueueDeps): Promise<void> {
   if (notify) await deps.sendMessage(job.chat_id!, `▶️ Iniciando vídeo #${job.id} (${SKILL_LABEL[job.skill]})`);
 
   try {
-    const opts = job.opts ? JSON.parse(job.opts) as { vertical?: boolean } : {};
+    let opts: { vertical?: boolean } = {};
+    if (job.opts) {
+      try { opts = JSON.parse(job.opts) as { vertical?: boolean }; }
+      catch { /* opts inválido — vertical fica false */ }
+    }
     const prompt = buildVideoPrompt({ skill: job.skill, input: job.input, vertical: !!opts.vertical });
     const result = await deps.runAgent(prompt);
     const path = extractResultPath(result.text);
@@ -92,10 +96,10 @@ export async function processNextJob(deps: QueueDeps): Promise<void> {
     markJobDone(job.id, path);
     if (notify) {
       await deps.sendMessage(job.chat_id!, `✅ Vídeo #${job.id} pronto — ${SKILL_LABEL[job.skill]}\n${path}`);
-      if (job.send_video) {
-        try { await deps.sendDocument(job.chat_id!, path); }
-        catch (e) { await deps.sendMessage(job.chat_id!, `(não consegui anexar o arquivo: ${(e as Error).message})`); }
-      }
+    }
+    if (job.send_video && job.chat_id) {
+      try { await deps.sendDocument(job.chat_id, path); }
+      catch (e) { if (notify) await deps.sendMessage(job.chat_id, `(não consegui anexar o arquivo: ${(e as Error).message})`); }
     }
   } catch (e) {
     const msg = (e as Error).message || String(e);
