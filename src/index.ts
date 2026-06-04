@@ -116,6 +116,15 @@ async function main(): Promise<void> {
       bot.api.sendMessage(chatId, text, { parse_mode: 'HTML' }).then(() => {}).catch((err) => logger.error({ err }, 'Video queue failed to send message')),
     sendDocument: (chatId, filePath) =>
       bot.api.sendDocument(chatId, new InputFile(filePath)).then(() => {}).catch((err) => logger.error({ err }, 'Video queue failed to send document')),
+    moveVideo: async (src, dest) => {
+      const isFile = dest.toLowerCase().endsWith('.mp4');
+      const targetDir = isFile ? path.dirname(dest) : dest;
+      fs.mkdirSync(targetDir, { recursive: true });
+      const target = isFile ? dest : path.join(dest, path.basename(src));
+      try { fs.renameSync(src, target); }
+      catch { fs.copyFileSync(src, target); fs.unlinkSync(src); } // cross-device fallback
+      return target;
+    },
   });
   logger.info('Video queue worker started (concorrência = 1)');
 

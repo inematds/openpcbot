@@ -1431,13 +1431,16 @@ export function createBot(): Bot {
 
     const parsed = parseVideoCommand(raw);
     if (!parsed.ok) return ctx.reply(`${parsed.error}\n\nUse /mkivideos help.`);
-    const opts = parsed.vertical ? JSON.stringify({ vertical: true }) : null;
+    const optsObj: { vertical?: boolean; dest?: string } = {};
+    if (parsed.vertical) optsObj.vertical = true;
+    if (parsed.dest) optsObj.dest = parsed.dest;
+    const opts = Object.keys(optsObj).length ? JSON.stringify(optsObj) : null;
     const id = enqueueVideoJob({
       skill: parsed.skill, input: parsed.input, opts,
       notify: parsed.silent ? 'silencioso' : 'sempre',
       sendVideo: parsed.send, chatId: ctx.chat!.id.toString(),
     });
-    return ctx.reply(`📥 Vídeo enfileirado #${id} (${parsed.skill})${parsed.send ? ' — te envio o arquivo ao terminar' : ''}.`);
+    return ctx.reply(`📥 Vídeo enfileirado #${id} (${parsed.skill})${parsed.dest ? ` → ${parsed.dest}` : ''}${parsed.send ? ' — te envio o arquivo ao terminar' : ''}.`);
   });
 
   // Text messages — and any slash commands not owned by this bot (skills, e.g. /todo /gmail)

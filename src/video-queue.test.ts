@@ -27,6 +27,16 @@ describe('parseVideoCommand', () => {
     expect(r.silent).toBe(true);
   });
 
+  it('parses --pasta <caminho> and strips it from input', () => {
+    const r = parseVideoCommand('explicativo Bayes --pasta /home/nei/videos --vertical') as any;
+    expect(r.input).toBe('Bayes');
+    expect(r.dest).toBe('/home/nei/videos');
+    expect(r.vertical).toBe(true);
+  });
+  it('dest is undefined when --pasta absent', () => {
+    expect((parseVideoCommand('explicativo Bayes') as any).dest).toBeUndefined();
+  });
+
   it('rejects unknown skill', () => {
     expect(parseVideoCommand('foo bar')).toEqual({ ok: false, error: expect.stringContaining('explicativo') });
   });
@@ -79,13 +89,15 @@ describe('extractResultPath', () => {
 describe('processNextJob', () => {
   const sent: string[] = [];
   const docs: Array<{ chatId: string; path: string }> = [];
+  const moved: Array<{ src: string; dest: string }> = [];
   const deps = (agentText: string | null) => ({
     runAgent: async () => ({ text: agentText }),
     sendMessage: async (chatId: string, text: string) => { sent.push(text); },
     sendDocument: async (chatId: string, path: string) => { docs.push({ chatId, path }); },
+    moveVideo: async (src: string, dest: string) => { moved.push({ src, dest }); return dest + '/moved.mp4'; },
   });
 
-  beforeEach(() => { _initTestDatabase(); sent.length = 0; docs.length = 0; });
+  beforeEach(() => { _initTestDatabase(); sent.length = 0; docs.length = 0; moved.length = 0; });
 
   it('does nothing when a job is already running', async () => {
     const id = enqueueVideoJob({ skill: 'explicativo', input: 'X', opts: null, notify: 'sempre', sendVideo: false, chatId: '1' });
@@ -109,6 +121,16 @@ describe('processNextJob', () => {
     enqueueVideoJob({ skill: 'explicativo', input: 'X', opts: null, notify: 'sempre', sendVideo: true, chatId: '99' });
     await processNextJob(deps('RESULT: /out/x.mp4'));
     expect(docs).toEqual([{ chatId: '99', path: '/out/x.mp4' }]);
+  });
+
+  it('moves the video to opts.dest and reports/sends the new path', async () => {
+    enqueueVideoJob({ skill: 'explicativo', input: 'X', opts: JSON.stringify({ dest: '/dst' }), notify: 'sempre', sendVideo: true, chatId: '5' });
+    await processNextJob(deps('RESULT: /out/x.mp4'));
+    expect(moved).toEqual([{ src: '/out/x.mp4', dest: '/dst' }]);
+    const job = listJobs()[0];
+    expect(job.result_path).toBe('/dst/moved.mp4');
+    expect(docs).toEqual([{ chatId: '5', path: '/dst/moved.mp4' }]);
+    expect(sent.some((m) => m.includes('/dst/moved.mp4'))).toBe(true);
   });
 
   it('marks failed when no RESULT and keeps queue free', async () => {
@@ -152,7 +174,7 @@ describe('formatQueueList', () => {
 describe('mkiHelpText', () => {
   it('documents the 3 skills, the flags and the fila subcommand', () => {
     const h = mkiHelpText();
-    for (const s of ['explicativo', 'curso', 'demo', '--vertical', '--enviar', '--silencioso', 'fila']) {
+    for (const s of ['explicativo', 'curso', 'demo', '--vertical', '--enviar', '--silencioso', '--pasta', 'fila']) {
       expect(h).toContain(s);
     }
   });

@@ -7,7 +7,7 @@ const SKILL_SLUGS: Record<VideoJob['skill'], string> = {
 };
 
 export type ParsedCommand =
-  | { ok: true; skill: VideoJob['skill']; input: string; vertical: boolean; send: boolean; silent: boolean }
+  | { ok: true; skill: VideoJob['skill']; input: string; vertical: boolean; send: boolean; silent: boolean; dest?: string }
   | { ok: false; error: string };
 
 /** Parse the text after "/mkivideos" (ctx.match) for the enqueue case. */
@@ -22,13 +22,21 @@ export function parseVideoCommand(raw: string): ParsedCommand {
   const skill = skillToken as VideoJob['skill'];
 
   const rest = tokens.slice(1);
-  const vertical = rest.includes('--vertical');
-  const send = rest.includes('--enviar');
-  const silent = rest.includes('--silencioso');
-  const input = rest.filter((t) => !t.startsWith('--')).join(' ').trim();
-
+  let vertical = false, send = false, silent = false;
+  let dest: string | undefined;
+  const inputTokens: string[] = [];
+  for (let i = 0; i < rest.length; i++) {
+    const t = rest[i];
+    if (t === '--vertical') vertical = true;
+    else if (t === '--enviar') send = true;
+    else if (t === '--silencioso') silent = true;
+    else if (t === '--pasta') { dest = rest[i + 1]; i++; } // consome o valor
+    else if (t.startsWith('--')) { /* flag desconhecida: ignora */ }
+    else inputTokens.push(t);
+  }
+  const input = inputTokens.join(' ').trim();
   if (!input) return { ok: false, error: 'Faltou o assunto/link depois da skill.' };
-  return { ok: true, skill, input, vertical, send, silent };
+  return { ok: true, skill, input, vertical, send, silent, dest };
 }
 
 /** Autonomous prompt for runAgent — runs the skill end-to-end and emits RESULT:. */
@@ -60,6 +68,7 @@ export interface QueueDeps {
   runAgent: (prompt: string) => Promise<{ text: string | null }>;
   sendMessage: (chatId: string, text: string) => Promise<void>;
   sendDocument: (chatId: string, path: string) => Promise<void>;
+  moveVideo: (src: string, dest: string) => Promise<string>;
 }
 
 const SKILL_LABEL: Record<VideoJob['skill'], string> = {
@@ -77,10 +86,10 @@ export async function processNextJob(deps: QueueDeps): Promise<void> {
   if (notify) await deps.sendMessage(job.chat_id!, `▶️ Iniciando vídeo #${job.id} (${SKILL_LABEL[job.skill]})`);
 
   try {
-    let opts: { vertical?: boolean } = {};
+    let opts: { vertical?: boolean; dest?: string } = {};
     if (job.opts) {
-      try { opts = JSON.parse(job.opts) as { vertical?: boolean }; }
-      catch { /* opts inválido — vertical fica false */ }
+      try { opts = JSON.parse(job.opts) as { vertical?: boolean; dest?: string }; }
+      catch { /* opts inválido — ignora */ }
     }
     const prompt = buildVideoPrompt({ skill: job.skill, input: job.input, vertical: !!opts.vertical });
     const result = await deps.runAgent(prompt);
@@ -93,14 +102,24 @@ export async function processNextJob(deps: QueueDeps): Promise<void> {
       return;
     }
 
-    markJobDone(job.id, path);
+    let finalPath = path;
+    if (opts.dest) {
+      try { finalPath = await deps.moveVideo(path, opts.dest); }
+      catch (e) {
+        finalPath = path;
+        if (notify) await deps.sendMessage(job.chat_id!, `⚠ Vídeo #${job.id} renderizou mas não consegui mover pra ${opts.dest}: ${(e as Error).message}. Ficou em ${path}`);
+      }
+    }
+
+    markJobDone(job.id, finalPath);
     if (notify) {
-      await deps.sendMessage(job.chat_id!, `✅ Vídeo #${job.id} pronto — ${SKILL_LABEL[job.skill]}\n${path}`);
+      await deps.sendMessage(job.chat_id!, `✅ Vídeo #${job.id} pronto — ${SKILL_LABEL[job.skill]}\n${finalPath}`);
     }
     if (job.send_video && job.chat_id) {
-      try { await deps.sendDocument(job.chat_id, path); }
+      try { await deps.sendDocument(job.chat_id, finalPath); }
       catch (e) { if (notify) await deps.sendMessage(job.chat_id, `(não consegui anexar o arquivo: ${(e as Error).message})`); }
     }
+    return;
   } catch (e) {
     const msg = (e as Error).message || String(e);
     markJobFailed(job.id, msg);
@@ -136,6 +155,7 @@ export function mkiHelpText(): string {
     '  --vertical    gera 9:16 (Shorts/Reels) em vez do padrão',
     '  --enviar      anexa o .mp4 no Telegram ao terminar',
     '  --silencioso  não notifica; aparece só no painel',
+    '  --pasta <caminho>  move o .mp4 pra essa pasta (ou caminho .mp4 completo)',
     '',
     '<b>Fila:</b>',
     '  /mkivideos fila               mostra a fila',
