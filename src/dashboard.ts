@@ -103,7 +103,7 @@ export function startDashboard(botApi?: Api<RawApi>): void {
   // Video queue
   app.get('/videos', (c) => c.html(getVideoDashboardHtml(DASHBOARD_TOKEN)));
 
-  app.get('/api/video-jobs', (c) => c.json({ jobs: listJobs() }));
+  app.get('/api/video-jobs', (c) => c.json({ jobs: listJobs(2000) }));
 
   app.post('/api/video-jobs/:id/cancel', (c) => {
     const ok = cancelJob(Number(c.req.param('id')));

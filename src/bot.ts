@@ -1436,7 +1436,7 @@ export function createBot(): Bot {
         const ok = cancelJob(Number(cancelMatch[1]));
         return ctx.reply(ok ? `🗑️ Job #${cancelMatch[1]} cancelado.` : `Não consegui cancelar #${cancelMatch[1]} (já rodando ou não existe).`);
       }
-      return ctx.reply(formatQueueList(listJobs()));
+      return ctx.reply(formatQueueList(listJobs(2000)));
     }
 
     const parsed = parseVideoCommand(raw);
