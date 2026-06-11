@@ -921,6 +921,15 @@ export function createBot(): Bot {
       '• /claude /inemaref-serie cria uma SERIE completa sobre &lt;assunto&gt; (biblia + episodios em video)\n' +
       '• /claude /inemaref-&lt;skill&gt; help — guia da skill (folder, quadrinho, motioncomic, serie)\n\n' +
 
+      '<b>diretor-animacao (skill: imagens prontas + narracao → filme, sem IA de video)</b>\n' +
+      'O Diretor: ve cada imagem, decide camera/cortes/transicoes/musica/SFX (gramatica de cinema) e renderiza via pixflow.\n' +
+      'Roda via /claude — exemplos:\n' +
+      '• /claude &lt;pasta com imagens + narracao&gt; — vira filme\n' +
+      '• /claude anima essas imagens com musica e efeitos de som\n' +
+      '• /claude dirige esse material (mostra a decupagem pra aprovar; "direto" pula)\n' +
+      '• /claude /diretor-animacao help — guia da skill\n' +
+      'Exemplo real: O Pequeno Principe (21 imagens → 2min11) — https://inematds.github.io/diretor-animacao/\n\n' +
+
       '<b>Manutencao</b>\n' +
       '/memoryaudit — Audita memoria e CLAUDE.md (o que guardar, comprimir, remover)\n' +
       '/handoff — Handoff estruturado pra outro agente / antes de /clear\n\n' +
