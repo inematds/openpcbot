@@ -23,13 +23,14 @@ import { openrouterChat, openrouterAvailable, OpenRouterMessage } from './openro
 import { runCodex, codexAvailable } from './codex.js';
 import { routeMessage, AgentTarget } from './router.js';
 import { resolveProject } from './project-resolver.js';
-import { clearSession, getRecentConversation, getRecentMemories, getSession, setSession, lookupWaChatId, saveWaMessageMap, saveTokenUsage, enqueueVideoJob, listJobs, cancelJob } from './db.js';
-import { parseVideoCommand, formatQueueList, mkiHelpText } from 'mkivideos';
+import { clearSession, getRecentConversation, getRecentMemories, getSession, setSession, lookupWaChatId, saveWaMessageMap, saveTokenUsage } from './db.js';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { logger } from './logger.js';
 import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage } from './media.js';
 import { buildMemoryContext, saveConversationTurn } from './memory.js';
 import { emitChatEvent, setProcessing, setActiveAbort, abortActiveQuery } from './state.js';
-import { VAULT_PATH_RESOLVED } from './config.js';
+import { VAULT_PATH_RESOLVED, PROJECT_ROOT } from './config.js';
 import path from 'path';
 
 // ── Context window tracking ──────────────────────────────────────────
@@ -903,6 +904,23 @@ export function createBot(): Bot {
       'Flags: --vertical (9:16), --enviar (manda o .mp4), --silencioso, --pasta &lt;caminho&gt;\n' +
       'Painel da fila: /videos no dashboard.\n\n' +
 
+      '<b>videoprodutor (skill: link/assunto → video profissional ponta a ponta)</b>\n' +
+      'Orquestra plano + direcao + imagem/SVG + voz + render (3 camadas), 16:9 e 9:16, tudo local.\n' +
+      'Roda via /claude — exemplos:\n' +
+      '• /claude produz o video de &lt;link&gt;\n' +
+      '• /claude do link ao video: &lt;link&gt;\n' +
+      '• /claude video profissional sobre &lt;assunto&gt; (propaganda ou explicativo)\n' +
+      '• /claude /videoprodutor help — guia da skill\n\n' +
+
+      '<b>inemaref (foto/assunto → HQ e serie em video, tudo local)</b>\n' +
+      'Fabrica de conteudo a partir de referencia: ficha → pagina de HQ → motion comic → serie.\n' +
+      'Roda via /claude — exemplos:\n' +
+      '• /claude /inemaref-folder cria a ficha (model sheet) de &lt;personagem&gt; (de foto ou texto)\n' +
+      '• /claude /inemaref-quadrinho transforma a historia em pagina de HQ/manga\n' +
+      '• /claude /inemaref-motioncomic vira video (camera viajando sobre a pagina)\n' +
+      '• /claude /inemaref-serie cria uma SERIE completa sobre &lt;assunto&gt; (biblia + episodios em video)\n' +
+      '• /claude /inemaref-&lt;skill&gt; help — guia da skill (folder, quadrinho, motioncomic, serie)\n\n' +
+
       '<b>Manutencao</b>\n' +
       '/memoryaudit — Audita memoria e CLAUDE.md (o que guardar, comprimir, remover)\n' +
       '/handoff — Handoff estruturado pra outro agente / antes de /clear\n\n' +
@@ -1419,38 +1437,36 @@ export function createBot(): Bot {
     handleMessage(ctx, prompt, false, false, true).catch((err) => logger.error({ err }, 'handoff command error'));
   });
 
-  // /mkivideos — unified video queue command
-  bot.command('mkivideos', (ctx) => {
+  // /mkivideos — CLIENTE FINO do serviço autônomo mkivideos (não roda mais o motor in-process).
+  // Mapeia o comando do Telegram pro wrapper skills/mkivideos/mki.sh (transporte v1 = CLI).
+  bot.command('mkivideos', async (ctx) => {
     if (!isAuthorised(ctx.chat!.id)) return;
     const raw = (String(ctx.match ?? '')).trim();
-    const first = (raw.split(/\s+/)[0] ?? '').toLowerCase();
+    const tokens = raw.split(/\s+/).filter(Boolean);
+    const first = (tokens[0] ?? '').toLowerCase();
 
-    if (first === '' || first === 'help' || first === 'ajuda') {
-      return ctx.reply(mkiHelpText(), { parse_mode: 'HTML' });
+    // raw do Telegram -> argv do mki.sh
+    let args: string[];
+    if (first === '' || first === 'help' || first === 'ajuda') args = ['help'];
+    else if (first === 'fila') {
+      const m = raw.slice(first.length).trim().match(/^cancelar\s+(\d+)$/i);
+      args = m ? ['cancelar', m[1]] : ['fila'];
+    } else if (first === 'stats' || first === 'status' || first === 'get' || first === 'cancelar') {
+      args = tokens;
+    } else {
+      args = ['add', ...tokens]; // <skill> <input...> [flags]
     }
 
-    if (first === 'fila') {
-      const rest = raw.slice(first.length).trim();
-      const cancelMatch = rest.match(/^cancelar\s+(\d+)$/i);
-      if (cancelMatch) {
-        const ok = cancelJob(Number(cancelMatch[1]));
-        return ctx.reply(ok ? `🗑️ Job #${cancelMatch[1]} cancelado.` : `Não consegui cancelar #${cancelMatch[1]} (já rodando ou não existe).`);
-      }
-      return ctx.reply(formatQueueList(listJobs(2000)));
+    const script = path.join(PROJECT_ROOT, 'skills', 'mkivideos', 'mki.sh');
+    try {
+      const { stdout } = await promisify(execFile)('bash', [script, ...args], { maxBuffer: 4 * 1024 * 1024 });
+      const out = (stdout || '').trim() || '(ok)';
+      const suffix = args[0] === 'add' ? '\n\nAcompanhe em /mkivideos fila ou no painel http://localhost:3142/videos' : '';
+      return ctx.reply(out + suffix);
+    } catch (err) {
+      logger.error({ err }, '/mkivideos client failed');
+      return ctx.reply(`Erro ao falar com o serviço mkivideos: ${(err as Error).message}`);
     }
-
-    const parsed = parseVideoCommand(raw);
-    if (!parsed.ok) return ctx.reply(`${parsed.error}\n\nUse /mkivideos help.`);
-    const optsObj: { vertical?: boolean; dest?: string } = {};
-    if (parsed.vertical) optsObj.vertical = true;
-    if (parsed.dest) optsObj.dest = parsed.dest;
-    const opts = Object.keys(optsObj).length ? JSON.stringify(optsObj) : null;
-    const id = enqueueVideoJob({
-      skill: parsed.skill, input: parsed.input, opts,
-      notify: parsed.silent ? 'silencioso' : 'sempre',
-      sendVideo: parsed.send, chatId: ctx.chat!.id.toString(),
-    });
-    return ctx.reply(`📥 Vídeo enfileirado #${id} (${parsed.skill})${parsed.dest ? ` → ${parsed.dest}` : ''}${parsed.send ? ' — te envio o arquivo ao terminar' : ''}.`);
   });
 
   // Text messages — and any slash commands not owned by this bot (skills, e.g. /todo /gmail)
