@@ -32,3 +32,4 @@ out/
 
 # Local Claude Code state
 .claude/
+__pycache__/

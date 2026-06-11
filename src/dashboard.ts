@@ -25,8 +25,6 @@ import {
   getHiveMindEntries,
   getAgentTokenStats,
   getAgentRecentConversation,
-  listJobs,
-  cancelJob,
 } from './db.js';
 import { listAgentIds, loadAgentConfig } from './agent-config.js';
 import { processMessageFromDashboard } from './bot.js';
@@ -100,14 +98,32 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     return c.json({ ok: true });
   });
 
-  // Video queue
+  // Video queue — proxy pro serviço autônomo mkivideos (o bot não é mais dono da fila).
+  const MKI_DASH = process.env.MKIVIDEOS_DASH || 'http://localhost:3142';
+  const MKI_TOKEN = process.env.MKIVIDEOS_TOKEN || 'inemadash';
+  const mkiQs = MKI_TOKEN ? `?token=${encodeURIComponent(MKI_TOKEN)}` : '';
+
   app.get('/videos', (c) => c.html(getVideoDashboardHtml(DASHBOARD_TOKEN)));
 
-  app.get('/api/video-jobs', (c) => c.json({ jobs: listJobs(2000) }));
+  app.get('/api/video-jobs', async (c) => {
+    try {
+      const r = await fetch(`${MKI_DASH}/api/video-jobs${mkiQs}`);
+      return c.json(await r.json() as object);
+    } catch { return c.json({ jobs: [], offline: true }); }
+  });
 
-  app.post('/api/video-jobs/:id/cancel', (c) => {
-    const ok = cancelJob(Number(c.req.param('id')));
-    return c.json({ ok });
+  app.get('/api/video-stats', async (c) => {
+    try {
+      const r = await fetch(`${MKI_DASH}/api/stats${mkiQs}`);
+      return c.json(await r.json() as object);
+    } catch { return c.json({ offline: true }); }
+  });
+
+  app.post('/api/video-jobs/:id/cancel', async (c) => {
+    try {
+      const r = await fetch(`${MKI_DASH}/api/video-jobs/${Number(c.req.param('id'))}/cancel${mkiQs}`, { method: 'POST' });
+      return c.json(await r.json() as object);
+    } catch { return c.json({ ok: false, offline: true }); }
   });
 
   // Memory stats
