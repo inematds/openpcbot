@@ -73,7 +73,7 @@ export function saveConversationTurn(
   agentId = 'main',
 ): void {
   try {
-    // Always log full conversation to conversation_log (for /respin)
+    // Always log full conversation to conversation_log (powers the dashboard chat view)
     logConversationTurn(chatId, 'user', userMessage, sessionId, agentId);
     logConversationTurn(chatId, 'assistant', claudeResponse, sessionId, agentId);
   } catch (err) {
