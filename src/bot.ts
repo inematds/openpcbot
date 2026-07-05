@@ -1806,12 +1806,32 @@ export function createBot(): Bot {
     }
   });
 
+  bot.on('callback_query:data', async (ctx) => {
+    const data = ctx.callbackQuery.data;
+    if (data === 'perm:allow' || data === 'perm:deny') {
+      const chatId = (ctx.chat?.id ?? ctx.callbackQuery.from.id).toString();
+      const had = resolvePermission(chatId, data === 'perm:allow');
+      await ctx.answerCallbackQuery(had ? (data === 'perm:allow' ? 'Permitido' : 'Negado') : 'Nada pendente');
+      try { await ctx.editMessageReplyMarkup(); } catch { /* mensagem antiga, ignora */ }
+      return;
+    }
+  });
+
   // Text messages — and any slash commands not owned by this bot (skills, e.g. /todo /gmail)
   const OWN_COMMANDS = new Set(['/start', '/help', '/newchat', '/voice', '/model', '/claude', '/ollama', '/codex', '/openrouter', '/models', '/orq', '/memory', '/forget', '/chatid', '/wa', '/slack', '/dashboard', '/stop', '/brain', '/daily', '/dia', '/tldr', '/resuma', '/memoryaudit', '/handoff', '/mkivideos']);
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text;
     const chatIdStr = ctx.chat!.id.toString();
     console.log(`[MSG] ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} chat=${chatIdStr} text=${text.slice(0, 50)}`);
+
+    // Se há uma permissão pendente, "sim/não" resolve ela (não vira mensagem nova).
+    if (pendingPermission.has(chatIdStr)) {
+      const t = (ctx.message.text || '').trim().toLowerCase();
+      if (/^(sim|s|yes|y|nao|não|n|no)$/.test(t)) {
+        resolvePermission(chatIdStr, /^(sim|s|yes|y)$/.test(t));
+        return;
+      }
+    }
 
     if (text.startsWith('/')) {
       const cmd = text.split(/[\s@]/)[0].toLowerCase();
