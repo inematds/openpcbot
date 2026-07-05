@@ -20,6 +20,7 @@ const envConfig = readEnvFile([
   'OLLAMA_URL',
   'OPENROUTER_API_KEY',
   'OPENROUTER_MODEL',
+  'OPENROUTER_VISION_MODEL',
 ]);
 
 // ── Multi-agent support ──────────────────────────────────────────────
@@ -82,7 +83,7 @@ export const MAX_MESSAGE_LENGTH = 4096;
 // Telegram's typing action expires after ~5s, so 4s keeps it continuous.
 export const TYPING_REFRESH_MS = 4000;
 
-// Context window limit for the model. Opus 4.6 (1M context) = 1,000,000.
+// Context window limit for the model. Opus 4.8 (1M context) = 1,000,000.
 // Override via CONTEXT_LIMIT in .env if using a different model variant.
 export const CONTEXT_LIMIT = parseInt(
   process.env.CONTEXT_LIMIT || envConfig.CONTEXT_LIMIT || '1000000',
@@ -102,6 +103,8 @@ export const OPENROUTER_API_KEY =
   process.env.OPENROUTER_API_KEY || envConfig.OPENROUTER_API_KEY || '';
 export const OPENROUTER_MODEL =
   process.env.OPENROUTER_MODEL || envConfig.OPENROUTER_MODEL || 'deepseek/deepseek-chat';
+export const OPENROUTER_VISION_MODEL =
+  process.env.OPENROUTER_VISION_MODEL || envConfig.OPENROUTER_VISION_MODEL || 'minimax/minimax-m3';
 
 // ── Second Brain vault ──────────────────────────────────────────────
 export const VAULT_PATH =

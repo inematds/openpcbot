@@ -49,6 +49,31 @@ Execute. Don't explain what you're about to do — just do it. When [YOUR NAME] 
 - **To work on a specific project**, `cd` into its directory first. Example: if user says "projeto voos", work in `/home/nmaldaner/projetos/voos/`.
 - **Gemini API key**: stored in this project's `.env` as `GOOGLE_API_KEY` — use this when video understanding is needed.
 
+## Como (re)startar o serviço
+
+O bot roda como **serviço systemd de USUÁRIO** (unit em `~/.config/systemd/user/openpcbot.service`), a partir do `dist/`. Toda mudança em `src/` **ou** no `.env` só entra no ar depois de rebuild + restart.
+
+```bash
+npm run build && systemctl --user restart openpcbot
+```
+
+- **Restart é sempre `systemctl --user restart openpcbot` (SEM sudo).** `sudo systemctl restart openpcbot` **falha** com "Unit not found" — root não enxerga units de usuário.
+- Em shell não-login, exportar antes: `export XDG_RUNTIME_DIR="/run/user/$(id -u)"`.
+- O serviço é `Restart=no`: matar o processo **não** reinicia sozinho. Sempre use o `systemctl --user restart`.
+- Verificar: `systemctl --user status openpcbot` / logs `journalctl --user -u openpcbot -n 30 --no-pager`. Boot ok = linha `OpenPCBot online: @inemaclaudebot`.
+
+## Publicação de vídeos (lives9 / lives2)
+
+Quando o usuário disser **"coloca na lives9"**, **"manda pra lives9"**, **"lives9"** (ou equivalente com **lives2**), o destino dos arquivos de vídeo é:
+
+- **lives9** → `/home/nmaldaner/projetos/yt-pub-lives9/imports/videos/`
+- **lives2** → `/home/nmaldaner/projetos/yt-pub-lives2/imports/videos/`
+
+Regras:
+- **Mover** os arquivos (não copiar), a menos que o usuário diga explicitamente "copiar".
+- Criar o diretório `imports/videos/` se não existir.
+- Mover todos os MP4 do projeto (16:9 e 9:16).
+
 ## Available Skills (invoke automatically when relevant)
 
 <!-- This table lists skills commonly available. Edit to match what you actually have

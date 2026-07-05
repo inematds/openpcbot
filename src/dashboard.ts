@@ -224,7 +224,7 @@ export function startDashboard(botApi?: Api<RawApi>): void {
           id,
           name: config.name,
           description: config.description,
-          model: config.model ?? 'claude-opus-4-6',
+          model: config.model ?? 'claude-opus-4-8',
           running,
           todayTurns: stats.todayTurns,
           todayCost: stats.todayCost,
@@ -247,7 +247,7 @@ export function startDashboard(botApi?: Api<RawApi>): void {
 
     // Built-in agents with their own tracking
     const builtInAgents = [
-      { id: 'claude', name: 'Claude', description: 'Claude Agent SDK (full tools)', model: 'claude-opus-4-6', running: mainRunning },
+      { id: 'claude', name: 'Claude', description: 'Claude Agent SDK (full tools)', model: 'claude-opus-4-8', running: mainRunning },
       { id: 'ollama', name: 'Ollama', description: 'Local LLM (free)', model: 'qwen2.5:14b', running: mainRunning },
       { id: 'openrouter', name: 'OpenRouter', description: 'OpenRouter API (multi-model)', model: 'various', running: mainRunning },
       { id: 'codex', name: 'Codex', description: 'OpenAI Codex CLI', model: 'codex', running: mainRunning },

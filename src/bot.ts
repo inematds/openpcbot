@@ -17,9 +17,11 @@ import {
   OLLAMA_MODEL,
   OLLAMA_ROUTER_MODEL,
   OPENROUTER_MODEL,
+  OPENROUTER_VISION_MODEL,
 } from './config.js';
-import { ollamaChat, ollamaListModels, ollamaHealthCheck, OllamaMessage } from './ollama.js';
-import { openrouterChat, openrouterAvailable, OpenRouterMessage } from './openrouter.js';
+import { ollamaChat, ollamaListModels, ollamaHealthCheck, OllamaMessage, OllamaTool, OllamaResult } from './ollama.js';
+import { openrouterChat, openrouterAvailable, openrouterVisionChat, OpenRouterMessage } from './openrouter.js';
+import { geminiAnalyzeMedia, geminiAvailable } from './gemini.js';
 import { OPENROUTER_TOOLS, executeOpenRouterTool } from './openrouter-tools.js';
 import { runCodex, codexAvailable } from './codex.js';
 import { routeMessage, AgentTarget } from './router.js';
@@ -37,7 +39,7 @@ import path from 'path';
 // ── Context window tracking ──────────────────────────────────────────
 // Uses input_tokens from the last API call (= actual context window size:
 // system prompt + conversation history + tool results for that call).
-// Compares against CONTEXT_LIMIT (default 1M for Opus 4.6 1M, configurable).
+// Compares against CONTEXT_LIMIT (default 1M for Opus 4.8 1M, configurable).
 //
 // On a fresh session the base overhead (system prompt, skills, CLAUDE.md,
 // MCP tools) can be 200-400k+ tokens. We track that baseline per session
@@ -99,8 +101,8 @@ const voiceEnabledChats = new Set<string>();
 const chatModelOverride = new Map<string, string>();
 
 const AVAILABLE_MODELS: Record<string, string> = {
-  opus: 'claude-opus-4-6',
-  sonnet: 'claude-sonnet-4-5',
+  opus: 'claude-opus-4-8',
+  sonnet: 'claude-sonnet-5',
   haiku: 'claude-haiku-4-5',
 };
 const DEFAULT_MODEL_LABEL = 'opus';
@@ -354,8 +356,35 @@ function isAuthorised(chatId: number): boolean {
   return chatId.toString() === ALLOWED_CHAT_ID;
 }
 
+/** Remove <think>...</think> reasoning blocks some Ollama models (qwen3) emit
+ * inline, so only the final answer reaches Telegram. */
+function stripThink(s: string): string {
+  return s.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+}
+
+/** System prompt for the Ollama path. Tells the local model who it is and that
+ * it has the same read-only `bash` tool the OpenRouter path uses. */
+function ollamaSystemPrompt(model: string): string {
+  return [
+    'You are a helpful assistant running inside OpenPCBot, a multi-agent Telegram bot.',
+    `You are powered by the local model "${model}", served via Ollama on the user's own machine.`,
+    'If asked which model or AI you are, answer truthfully with that model name. Do NOT claim to be ChatGPT or made by OpenAI.',
+    '',
+    'You have a single `bash` tool for READ-ONLY inspection of this machine (ls, cat, grep, find, git read-only, ps, df, etc). Use it when the user asks about files, projects, or system state. Use absolute paths like /home/nmaldaner/projetos/<name> to inspect other projects.',
+    'You CANNOT write/delete files, run builds, install things, or use the network. For anything that mutates the machine or needs full coding, tell the user to use /claude <msg> (Claude Code, full tools) or /codex <msg> (Codex CLI).',
+    'Do not narrate that you are about to call a tool. Just call it, then answer. Keep responses concise.',
+    'All user projects live in /home/nmaldaner/projetos/.',
+  ].join('\n');
+}
+
+/** Keep the model resident between turns so we don't pay the cold-load each message. */
+const OLLAMA_KEEP_ALIVE = '30m';
+
 /**
- * Handle a message via Ollama (direct chat, not orchestrator).
+ * Handle a message via Ollama (direct chat, not orchestrator). Runs an agentic
+ * loop: tool-capable local models (e.g. qwen3.6) may call the read-only `bash`
+ * tool, which we run locally and feed back until the model answers in text.
+ * Models without a tool template fall back to plain chat automatically.
  */
 async function handleOllamaMessage(ctx: Context, message: string): Promise<void> {
   const chatId = ctx.chat!.id;
@@ -368,51 +397,92 @@ async function handleOllamaMessage(ctx: Context, message: string): Promise<void>
   setProcessing(chatIdStr, true);
 
   try {
-    // Maintain conversation history (prepend system prompt on first message)
+    // Stored history holds only clean user/assistant turns; the system prompt is
+    // prepended fresh each call and tool round-trips live in `messages` only.
     let history = ollamaHistory.get(chatIdStr) ?? [];
-    if (history.length === 0) {
-      history.push({
-        role: 'system',
-        content: [
-          'You are a helpful assistant running inside OpenPCBot, a multi-agent Telegram bot. You answer questions directly. Keep responses concise.',
-          '',
-          'Environment:',
-          '- All user projects live in /home/nmaldaner/projetos/ (120+ projects)',
-          '- You do NOT have file/bash access. For tasks requiring files, commands, code, or system operations, tell the user to use:',
-          '  /claude <msg> — Claude Code (full tools, bash, files, web search)',
-          '  /codex <msg> — Codex CLI (code tasks)',
-          '  /claude projeto <name> <msg> — work on a specific project',
-          '- You CAN answer questions, translate, explain concepts, brainstorm, and have conversations.',
-        ].join('\n'),
-      });
-    }
+    if (history[0]?.role === 'system') history = history.slice(1); // migrate legacy stored system turn
 
-    // Inject memory context into user message
     const memCtx = await buildMemoryContext(chatIdStr, message);
     const enrichedMessage = memCtx ? `${memCtx}\n\n${message}` : message;
     history.push({ role: 'user', content: enrichedMessage });
     if (history.length > MAX_HISTORY) history = history.slice(-MAX_HISTORY);
 
-    const result = await ollamaChat(model, history);
-    history.push({ role: 'assistant', content: result.content });
+    const systemMsg: OllamaMessage = { role: 'system', content: ollamaSystemPrompt(model) };
+    const messages: OllamaMessage[] = [systemMsg, ...history];
+    const tools = OPENROUTER_TOOLS as unknown as OllamaTool[];
+    const MAX_TOOL_ITERS = 8;
+    let finalText = '';
+    let promptTokens = 0;
+    let completionTokens = 0;
+    let toolsSupported = true;
+
+    for (let iter = 0; iter < MAX_TOOL_ITERS; iter++) {
+      let result: OllamaResult;
+      try {
+        result = await ollamaChat(model, messages, {
+          tools: toolsSupported ? tools : undefined,
+          keepAlive: OLLAMA_KEEP_ALIVE,
+          // Disable thinking: qwen3-style models otherwise return empty content
+          // after a tool round-trip, which breaks final-answer extraction.
+          think: false,
+        });
+      } catch (err) {
+        const m = err instanceof Error ? err.message : String(err);
+        // Model without a tool template: retry this turn as plain chat, stop offering tools.
+        if (toolsSupported && /does not support tools/i.test(m)) {
+          toolsSupported = false;
+          result = await ollamaChat(model, messages, { keepAlive: OLLAMA_KEEP_ALIVE, think: false });
+        } else {
+          throw err;
+        }
+      }
+
+      promptTokens += result.promptTokens;
+      completionTokens += result.completionTokens;
+
+      if (result.toolCalls.length === 0) {
+        finalText = stripThink(result.content);
+        break;
+      }
+
+      // Record the tool request, run each tool locally, and echo the command for
+      // transparency (these run on the user's machine).
+      messages.push({ role: 'assistant', content: result.content || '', tool_calls: result.toolCalls });
+      for (const tc of result.toolCalls) {
+        const argsObj = tc.function.arguments ?? {};
+        const display = (argsObj as { command?: string }).command ?? JSON.stringify(argsObj);
+        await ctx.reply(`🔧 ${tc.function.name}: ${String(display).slice(0, 300)}`);
+        // Ollama returns arguments as an object; the executor expects a JSON string.
+        const toolResult = await executeOpenRouterTool(tc.function.name, JSON.stringify(argsObj));
+        messages.push({ role: 'tool', tool_name: tc.function.name, content: toolResult });
+      }
+
+      if (iter === MAX_TOOL_ITERS - 1) {
+        finalText = stripThink(result.content) || 'Atingi o limite de passos de tool sem fechar a resposta. Refina a pergunta ou usa /claude pra algo mais pesado.';
+      }
+    }
+
+    if (!finalText.trim()) finalText = '(o modelo não retornou texto)';
+
+    history.push({ role: 'assistant', content: finalText });
     ollamaHistory.set(chatIdStr, history);
 
-    emitChatEvent({ type: 'assistant_message', chatId: chatIdStr, content: result.content, source: 'telegram' });
-    saveConversationTurn(chatIdStr, message, result.content, undefined, 'ollama');
+    emitChatEvent({ type: 'assistant_message', chatId: chatIdStr, content: finalText, source: 'telegram' });
+    saveConversationTurn(chatIdStr, message, finalText, undefined, 'ollama');
 
-    // Track Ollama token usage (cost=0 since it's local)
+    // Track Ollama token usage (cost=0 since it's local; summed across tool iterations)
     try {
       saveTokenUsage(
         chatIdStr, undefined,
-        result.promptTokens, result.completionTokens,
-        0, result.promptTokens + result.completionTokens,
+        promptTokens, completionTokens,
+        0, promptTokens + completionTokens,
         0, false, 'ollama',
       );
     } catch (dbErr) {
       logger.error({ err: dbErr }, 'Failed to save Ollama token usage');
     }
 
-    for (const part of splitMessage(formatForTelegram(result.content))) {
+    for (const part of splitMessage(formatForTelegram(finalText))) {
       await ctx.reply(part, { parse_mode: 'HTML' });
     }
   } catch (err) {
@@ -539,6 +609,129 @@ async function handleOpenrouterMessage(ctx: Context, message: string): Promise<v
     logger.error({ err }, 'OpenRouter error');
     const errMsg = err instanceof Error ? err.message : String(err);
     await ctx.reply(`OpenRouter error: ${errMsg}`);
+  } finally {
+    clearInterval(typingInterval);
+    setProcessing(chatIdStr, false);
+  }
+}
+
+/**
+ * Handle a photo/image via OpenRouter vision model (e.g. MiniMax M3).
+ * Sends the image as base64 data-URI with optional prompt text.
+ */
+async function handleOpenrouterVision(ctx: Context, imagePath: string, prompt?: string): Promise<void> {
+  const chatId = ctx.chat!.id;
+  const chatIdStr = chatId.toString();
+  const visionModel = chatOpenrouterModel.get(chatIdStr) ?? OPENROUTER_VISION_MODEL;
+
+  if (!openrouterAvailable()) {
+    await ctx.reply('OPENROUTER_API_KEY not configured. Add it to .env and restart.');
+    return;
+  }
+
+  await ctx.reply(`Vision (${visionModel.split('/').pop()})...`);
+  await sendTyping(ctx.api, chatId);
+  const typingInterval = setInterval(() => void sendTyping(ctx.api, chatId), TYPING_REFRESH_MS);
+  setProcessing(chatIdStr, true);
+
+  try {
+    const result = await openrouterVisionChat(visionModel, imagePath, prompt);
+
+    emitChatEvent({ type: 'assistant_message', chatId: chatIdStr, content: result.content, source: 'telegram' });
+    saveConversationTurn(chatIdStr, prompt ?? '[image analysis]', result.content, undefined, 'openrouter');
+
+    try {
+      saveTokenUsage(
+        chatIdStr, undefined,
+        result.promptTokens, result.completionTokens,
+        0, result.promptTokens + result.completionTokens,
+        0, false, 'openrouter',
+      );
+    } catch (dbErr) {
+      logger.error({ err: dbErr }, 'Failed to save OpenRouter vision token usage');
+    }
+
+    for (const part of splitMessage(formatForTelegram(result.content))) {
+      await ctx.reply(part, { parse_mode: 'HTML' });
+    }
+  } catch (err) {
+    logger.error({ err }, 'OpenRouter vision error');
+    const errMsg = err instanceof Error ? err.message : String(err);
+    await ctx.reply(`OpenRouter vision error: ${errMsg}`);
+  } finally {
+    clearInterval(typingInterval);
+    setProcessing(chatIdStr, false);
+  }
+}
+
+/**
+ * Analyze a video with Gemini first; if Gemini fails (quota, error),
+ * fallback to OpenRouter vision (MiniMax M3).
+ */
+async function handleVideoAnalysis(ctx: Context, videoPath: string, prompt?: string): Promise<void> {
+  const chatId = ctx.chat!.id;
+  const chatIdStr = chatId.toString();
+
+  await sendTyping(ctx.api, chatId);
+  const typingInterval = setInterval(() => void sendTyping(ctx.api, chatId), TYPING_REFRESH_MS);
+  setProcessing(chatIdStr, true);
+
+  try {
+    // Priority 1: Gemini
+    if (geminiAvailable()) {
+      await ctx.reply('Analisando video (Gemini)...');
+      try {
+        const analysis = await geminiAnalyzeMedia(videoPath, prompt);
+        emitChatEvent({ type: 'assistant_message', chatId: chatIdStr, content: analysis, source: 'telegram' });
+        saveConversationTurn(chatIdStr, prompt ?? '[video analysis]', analysis, undefined, 'gemini');
+
+        for (const part of splitMessage(formatForTelegram(analysis))) {
+          await ctx.reply(part, { parse_mode: 'HTML' });
+        }
+        return;
+      } catch (geminiErr) {
+        const errMsg = geminiErr instanceof Error ? geminiErr.message : String(geminiErr);
+        logger.warn({ err: geminiErr }, 'Gemini video analysis failed, falling back to OpenRouter vision');
+        await ctx.reply(`Gemini falhou (${errMsg.slice(0, 100)}). Tentando via OpenRouter vision...`);
+      }
+    }
+
+    // Priority 2: OpenRouter vision (MiniMax M3)
+    if (openrouterAvailable()) {
+      const visionModel = chatOpenrouterModel.get(chatIdStr) ?? OPENROUTER_VISION_MODEL;
+      await ctx.reply(`Vision fallback (${visionModel.split('/').pop()})...`);
+      const result = await openrouterVisionChat(visionModel, videoPath, prompt);
+
+      emitChatEvent({ type: 'assistant_message', chatId: chatIdStr, content: result.content, source: 'telegram' });
+      saveConversationTurn(chatIdStr, prompt ?? '[video analysis]', result.content, undefined, 'openrouter');
+
+      try {
+        saveTokenUsage(
+          chatIdStr, undefined,
+          result.promptTokens, result.completionTokens,
+          0, result.promptTokens + result.completionTokens,
+          0, false, 'openrouter',
+        );
+      } catch (dbErr) {
+        logger.error({ err: dbErr }, 'Failed to save OpenRouter vision token usage');
+      }
+
+      for (const part of splitMessage(formatForTelegram(result.content))) {
+        await ctx.reply(part, { parse_mode: 'HTML' });
+      }
+      return;
+    }
+
+    // Priority 3: Claude (original path, uses Gemini skill internally)
+    const msg = buildVideoMessage(videoPath, prompt);
+    clearInterval(typingInterval);
+    setProcessing(chatIdStr, false);
+    handleMessage(ctx, msg).catch((err) => logger.error({ err }, 'Claude video analysis error'));
+    return;
+  } catch (err) {
+    logger.error({ err }, 'Video analysis error');
+    const errMsg = err instanceof Error ? err.message : String(err);
+    await ctx.reply(`Erro na analise de video: ${errMsg}`);
   } finally {
     clearInterval(typingInterval);
     setProcessing(chatIdStr, false);
@@ -937,7 +1130,9 @@ export function createBot(): Bot {
       '/claude on — Todas as msgs vao pro Claude ate /claude off\n' +
       '/ollama on — Todas as msgs vao pro Ollama ate /ollama off\n' +
       '/codex on — Todas as msgs vao pro Codex ate /codex off\n' +
-      '/openrouter on — Todas as msgs vao pro OpenRouter ate /openrouter off\n\n' +
+      '/openrouter on — Todas as msgs vao pro OpenRouter ate /openrouter off\n' +
+      '  Photos/videos em modo sticky OpenRouter vao pro modelo de visao (MiniMax M3)\n' +
+      '  Ou mande foto com legenda "vision" ou "minimax" pra forcar\n\n' +
 
       '<b>Orchestrator</b>\n' +
       '/orq — Toggle auto-routing on/off\n' +
@@ -1270,7 +1465,7 @@ export function createBot(): Bot {
       const model = chatOpenrouterModel.get(chatIdStr) ?? OPENROUTER_MODEL;
       const available = openrouterAvailable();
       const sticky = stickyAgent.get(chatIdStr) === 'openrouter' ? ' (sticky ON)' : '';
-      await ctx.reply(`OpenRouter: ${available ? 'configured' : 'no API key'}${sticky}\nModel: ${model}\n\nUsage:\n/openrouter <message> — chat\n/openrouter model <name> — switch model\n/openrouter on/off — sticky mode`);
+      await ctx.reply(`OpenRouter: ${available ? 'configured' : 'no API key'}${sticky}\nModel: ${model}\nVision: ${OPENROUTER_VISION_MODEL}\n\nUsage:\n/openrouter <message> — chat\n/openrouter model <name> — switch model\n/openrouter on/off — sticky mode\n\nVision: photos/videos sent in sticky mode go to vision model`);
       return;
     }
 
@@ -1314,6 +1509,7 @@ export function createBot(): Bot {
     const orModel = chatOpenrouterModel.get(chatIdStr) ?? OPENROUTER_MODEL;
     const orAvailable = openrouterAvailable();
 
+    const visionModel = OPENROUTER_VISION_MODEL;
     const lines = [
       `<b>Active Models</b>`,
       ``,
@@ -1321,6 +1517,7 @@ export function createBot(): Bot {
       `<b>Ollama:</b> ${ollamaModel}`,
       `<b>Router:</b> ${routerModel}`,
       `<b>OpenRouter:</b> ${orModel}${orAvailable ? '' : ' (no key)'}`,
+      `<b>Vision:</b> ${visionModel} (OpenRouter)`,
       `<b>Codex:</b> OpenAI (fixed)`,
     ];
 
@@ -1765,7 +1962,7 @@ export function createBot(): Bot {
     }
   });
 
-  // Photos — download and pass to Claude
+  // Photos — download and pass to Claude or OpenRouter vision
   bot.on('message:photo', async (ctx) => {
     const chatId = ctx.chat!.id;
     if (!isAuthorised(chatId)) return;
@@ -1776,14 +1973,25 @@ export function createBot(): Bot {
       return;
     }
 
+    const chatIdStr = chatId.toString();
+    const caption = ctx.message.caption ?? undefined;
+    const sticky = stickyAgent.get(chatIdStr);
+    // Route to OpenRouter vision if sticky openrouter is on, or caption contains "minimax" or "vision"
+    const useVision = sticky === 'openrouter' || /\b(minimax|vision|openrouter)\b/i.test(caption ?? '');
+
     await sendTyping(ctx.api, chatId);
     const typingInterval = setInterval(() => void sendTyping(ctx.api, chatId), TYPING_REFRESH_MS);
     try {
       const photo = ctx.message.photo[ctx.message.photo.length - 1];
       const localPath = await downloadMedia(activeBotToken, photo.file_id, 'photo.jpg');
       clearInterval(typingInterval);
-      const msg = buildPhotoMessage(localPath, ctx.message.caption ?? undefined);
-      handleMessage(ctx, msg).catch((err) => logger.error({ err }, 'Unhandled photo message error'));
+
+      if (useVision) {
+        handleOpenrouterVision(ctx, localPath, caption).catch((err) => logger.error({ err }, 'OpenRouter vision photo error'));
+      } else {
+        const msg = buildPhotoMessage(localPath, caption);
+        handleMessage(ctx, msg).catch((err) => logger.error({ err }, 'Unhandled photo message error'));
+      }
     } catch (err) {
       clearInterval(typingInterval);
       logger.error({ err }, 'Photo download failed');
@@ -1824,7 +2032,7 @@ export function createBot(): Bot {
     }
   });
 
-  // Videos — download and pass to Claude for Gemini analysis
+  // Videos — Gemini first, OpenRouter vision fallback, Claude last resort
   bot.on('message:video', async (ctx) => {
     const chatId = ctx.chat!.id;
     if (!isAuthorised(chatId)) return;
@@ -1833,6 +2041,12 @@ export function createBot(): Bot {
       return;
     }
 
+    const chatIdStr = chatId.toString();
+    const caption = ctx.message.caption ?? undefined;
+    const sticky = stickyAgent.get(chatIdStr);
+    // If sticky openrouter or keyword in caption → force OpenRouter vision (skip Gemini)
+    const forceOpenRouter = sticky === 'openrouter' || /\b(minimax|openrouter)\b/i.test(caption ?? '');
+
     await sendTyping(ctx.api, chatId);
     const typingInterval = setInterval(() => void sendTyping(ctx.api, chatId), TYPING_REFRESH_MS);
     try {
@@ -1840,8 +2054,13 @@ export function createBot(): Bot {
       const filename = video.file_name ?? `video_${Date.now()}.mp4`;
       const localPath = await downloadMedia(activeBotToken, video.file_id, filename);
       clearInterval(typingInterval);
-      const msg = buildVideoMessage(localPath, ctx.message.caption ?? undefined);
-      handleMessage(ctx, msg).catch((err) => logger.error({ err }, 'Unhandled video message error'));
+
+      if (forceOpenRouter) {
+        handleOpenrouterVision(ctx, localPath, caption).catch((err) => logger.error({ err }, 'OpenRouter vision video error'));
+      } else {
+        // Default: Gemini first → OpenRouter fallback → Claude last resort
+        handleVideoAnalysis(ctx, localPath, caption).catch((err) => logger.error({ err }, 'Video analysis error'));
+      }
     } catch (err) {
       clearInterval(typingInterval);
       logger.error({ err }, 'Video download failed');
@@ -1849,7 +2068,7 @@ export function createBot(): Bot {
     }
   });
 
-  // Video notes (circular format) — download and pass to Claude for Gemini analysis
+  // Video notes (circular format) — Gemini first, OpenRouter fallback
   bot.on('message:video_note', async (ctx) => {
     const chatId = ctx.chat!.id;
     if (!isAuthorised(chatId)) return;
@@ -1865,8 +2084,7 @@ export function createBot(): Bot {
       const filename = `video_note_${Date.now()}.mp4`;
       const localPath = await downloadMedia(activeBotToken, videoNote.file_id, filename);
       clearInterval(typingInterval);
-      const msg = buildVideoMessage(localPath, undefined);
-      handleMessage(ctx, msg).catch((err) => logger.error({ err }, 'Unhandled video note message error'));
+      handleVideoAnalysis(ctx, localPath).catch((err) => logger.error({ err }, 'Video note analysis error'));
     } catch (err) {
       clearInterval(typingInterval);
       logger.error({ err }, 'Video note download failed');

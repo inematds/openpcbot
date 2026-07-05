@@ -3,7 +3,7 @@ description: YouTube scripts, LinkedIn posts, carousels, trend research, content
 
 telegram_bot_token_env: CONTENT_BOT_TOKEN
 
-model: claude-sonnet-4-6
+model: claude-sonnet-5
 
 obsidian:
   vault: /Users/marwankashef/Desktop/Prompt Advisers/Mark's World
