@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { Api, Bot, Context, InputFile, RawApi } from 'grammy';
+import { Api, Bot, Context, InlineKeyboard, InputFile, RawApi } from 'grammy';
 
 import { runAgent, UsageInfo, AgentProgressEvent } from './agent.js';
 import {
@@ -23,6 +23,7 @@ import { ollamaChat, ollamaListModels, ollamaHealthCheck, OllamaMessage, OllamaT
 import { openrouterChat, openrouterAvailable, openrouterVisionChat, OpenRouterMessage } from './openrouter.js';
 import { geminiAnalyzeMedia, geminiAvailable } from './gemini.js';
 import { OPENROUTER_TOOLS, executeOpenRouterTool } from './openrouter-tools.js';
+import { AGENT_TOOLS, classifyRisk, executeShell } from './agent-tools.js';
 import { runCodex, codexAvailable } from './codex.js';
 import { routeMessage, AgentTarget } from './router.js';
 import { resolveProject } from './project-resolver.js';
@@ -110,6 +111,74 @@ const DEFAULT_MODEL_LABEL = 'opus';
 // Per-chat model overrides for multi-agent systems (in-memory, resets on restart)
 const chatOllamaModel = new Map<string, string>();
 const chatOpenrouterModel = new Map<string, string>();
+
+// ── Gate de permissão para tools com escrita (Ollama/OpenRouter) ──────────────
+// Modo livre: pré-autoriza comandos graves por uma janela de tempo (por chat).
+const freeMode = new Map<string, number>(); // chatId -> expiry epoch ms
+// Permissão pendente: promise resolvida por botão inline ou por "sim/não".
+interface PendingPerm { resolve: (allowed: boolean) => void; command: string; timer: NodeJS.Timeout; }
+const pendingPermission = new Map<string, PendingPerm>();
+const PERM_TIMEOUT_MS = 180_000;
+
+function isFreeMode(chatId: string): boolean {
+  const exp = freeMode.get(chatId);
+  if (!exp) return false;
+  if (Date.now() > exp) { freeMode.delete(chatId); return false; }
+  return true;
+}
+function setFreeMode(chatId: string, ms: number): void { freeMode.set(chatId, Date.now() + ms); }
+function clearFreeMode(chatId: string): void { freeMode.delete(chatId); }
+function freeModeRemainingMs(chatId: string): number {
+  const exp = freeMode.get(chatId);
+  return exp && exp > Date.now() ? exp - Date.now() : 0;
+}
+
+/** Resolve uma permissão pendente (via botão ou texto). Retorna false se não havia nenhuma. */
+function resolvePermission(chatId: string, allowed: boolean): boolean {
+  const p = pendingPermission.get(chatId);
+  if (!p) return false;
+  clearTimeout(p.timer);
+  pendingPermission.delete(chatId);
+  p.resolve(allowed);
+  return true;
+}
+
+/** Pausa e pede permissão ao usuário (botão + aceita sim/não). Timeout => nega. */
+async function askPermission(ctx: Context, chatId: string, command: string, reason?: string): Promise<boolean> {
+  if (pendingPermission.has(chatId)) return false; // já há uma pendente; nega defensivamente
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const shown = command.length > 300 ? command.slice(0, 300) + '…' : command;
+  const kb = new InlineKeyboard().text('Permitir ✅', 'perm:allow').text('Negar ❌', 'perm:deny');
+  await ctx.reply(
+    `🔒 Comando grave${reason ? ` (${reason})` : ''}:\n<code>${esc(shown)}</code>\n\nPermitir? (ou responda sim/não)`,
+    { parse_mode: 'HTML', reply_markup: kb },
+  );
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => {
+      pendingPermission.delete(chatId);
+      resolve(false);
+      void ctx.reply('⏱️ Sem resposta em 3min — comando negado.');
+    }, PERM_TIMEOUT_MS);
+    pendingPermission.set(chatId, { resolve, command, timer });
+  });
+}
+
+/** Classifica → (gate se grave) → executa. Ecoa o comando no chat. Usado pelos dois loops. */
+async function runToolCall(ctx: Context, chatId: string, toolName: string, command: string): Promise<string> {
+  if (toolName !== 'bash') return `error: unknown tool "${toolName}"`;
+  if (!command.trim()) return 'error: comando vazio';
+  const risk = classifyRisk(command);
+  const shown = command.length > 300 ? command.slice(0, 300) + '…' : command;
+
+  if (risk.level === 'auto' || isFreeMode(chatId)) {
+    await ctx.reply(`${risk.level === 'grave' ? '🔓' : '🔧'} ${shown}`);
+    return executeShell(command);
+  }
+  const allowed = await askPermission(ctx, chatId, command, risk.reason);
+  if (!allowed) return 'blocked: usuário negou permissão';
+  await ctx.reply('▶️ rodando...');
+  return executeShell(command);
+}
 
 // Per-chat conversation history for Ollama/OpenRouter (no session persistence like Claude)
 const ollamaHistory = new Map<string, OllamaMessage[]>();
