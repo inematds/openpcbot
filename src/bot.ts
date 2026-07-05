@@ -1166,6 +1166,7 @@ export function createBot(): Bot {
     { command: 'memoryaudit', description: 'Audita memoria e CLAUDE.md (skill memory-audit)' },
     { command: 'handoff', description: 'Resumo estruturado pra outro agente (skill session-handoff)' },
     { command: 'mkivideos', description: 'Fila de vídeos — /mkivideos help' },
+    { command: 'livre', description: 'Modo livre: pré-autoriza comandos graves por um tempo' },
   ]).catch((err) => logger.warn({ err }, 'Failed to register bot commands with Telegram'));
 
   // /help — list available commands with usage guide
@@ -1836,6 +1837,28 @@ export function createBot(): Bot {
     if (text.startsWith('/')) {
       const cmd = text.split(/[\s@]/)[0].toLowerCase();
       if (OWN_COMMANDS.has(cmd)) return; // already handled by bot.command() above
+    }
+
+    if (text === '/livre' || text.startsWith('/livre ') || text.startsWith('/livre@')) {
+      const arg = text.replace(/^\/livre(@\S+)?/, '').trim().toLowerCase();
+      if (arg === 'off') {
+        clearFreeMode(chatIdStr);
+        await ctx.reply('Modo livre desligado. Comandos graves voltam a pedir permissão.');
+        return;
+      }
+      if (!arg || arg === 'status') {
+        const ms = freeModeRemainingMs(chatIdStr);
+        await ctx.reply(ms > 0
+          ? `🔓 Modo livre LIGADO — ~${Math.ceil(ms / 60000)}min restantes. Graves rodam sem pedir.`
+          : 'Modo livre desligado. Use /livre 30m pra ligar por 30 minutos.');
+        return;
+      }
+      const m = arg.match(/^(\d+)\s*(m|min|h)?$/);
+      const n = m ? parseInt(m[1], 10) : 30;
+      const ms = (m?.[2] === 'h' ? n * 60 : n) * 60_000;
+      setFreeMode(chatIdStr, ms);
+      await ctx.reply(`🔓 Modo livre LIGADO por ${m?.[2] === 'h' ? n + 'h' : n + 'min'}. Graves rodam sem pedir. /livre off pra desligar.`);
+      return;
     }
 
     // ── Second Brain trigger (natural language) ─────────────────────
