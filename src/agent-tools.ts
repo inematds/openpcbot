@@ -66,3 +66,57 @@ export function classifyRisk(command: string): RiskVerdict {
   }
   return { level: 'auto' };
 }
+
+const MAX_OUTPUT_CHARS = 16000;
+
+/**
+ * Roda um comando no shell da máquina (full shell, sem guard). Nunca lança:
+ * falhas voltam como texto pro modelo. Saída capada. cwd = SAFE_ROOT.
+ */
+export async function executeShell(
+  command: string,
+  opts?: { timeoutMs?: number; cwd?: string; maxOutput?: number },
+): Promise<string> {
+  const timeout = opts?.timeoutMs ?? 300_000;
+  const cwd = opts?.cwd ?? SAFE_ROOT;
+  const cap = opts?.maxOutput ?? MAX_OUTPUT_CHARS;
+  const trunc = (s: string) => (s.length > cap ? s.slice(0, cap) + '\n... (truncado)' : s);
+  try {
+    const { stdout, stderr } = await execFileAsync('bash', ['-c', command], {
+      timeout,
+      maxBuffer: 4 * 1024 * 1024,
+      cwd,
+    });
+    logger.info({ command }, 'agent shell ran');
+    return trunc((stdout || stderr || '(sem saída)').toString());
+  } catch (err: unknown) {
+    const e = err as { stdout?: string; stderr?: string; message?: string; killed?: boolean };
+    if (e.killed) return 'error: comando expirou (300s)';
+    return `error: ${trunc((e.stderr || e.stdout || e.message || 'comando falhou').toString())}`;
+  }
+}
+
+/**
+ * Tool exposta aos modelos Ollama/OpenRouter. Full shell — o gate de risco vive
+ * no chamador (runToolCall em bot.ts), não aqui.
+ */
+export const AGENT_TOOLS: OpenRouterTool[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'bash',
+      description:
+        'Run a shell command on the host to inspect OR modify files, run git/npm/builds, or use the network. ' +
+        'You operate under /home/nmaldaner/projetos. Just run what the task needs — dangerous commands ' +
+        '(mass delete, sudo, installing system packages, killing processes, touching secrets, or writing outside ~/projetos) ' +
+        'automatically prompt the user for permission before running. Use absolute paths under /home/nmaldaner/projetos.',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', description: 'The shell command to run.' },
+        },
+        required: ['command'],
+      },
+    },
+  },
+];

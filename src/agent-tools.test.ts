@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { classifyRisk } from './agent-tools.js';
+import { executeShell, AGENT_TOOLS } from './agent-tools.js';
 
 describe('classifyRisk', () => {
   const grave = [
@@ -42,5 +43,22 @@ describe('classifyRisk', () => {
 
   it('inclui um motivo nos graves', () => {
     expect(classifyRisk('sudo rm -rf /').reason).toBeTruthy();
+  });
+});
+
+describe('executeShell', () => {
+  it('roda comando e devolve stdout', async () => {
+    const out = await executeShell('echo ola-mundo');
+    expect(out).toContain('ola-mundo');
+  });
+  it('não lança em comando que falha; devolve texto de erro', async () => {
+    const out = await executeShell('ls /caminho/que/nao/existe/xyz');
+    expect(out.toLowerCase()).toContain('error');
+  });
+});
+
+describe('AGENT_TOOLS', () => {
+  it('expõe um tool bash', () => {
+    expect(AGENT_TOOLS[0].function.name).toBe('bash');
   });
 });
