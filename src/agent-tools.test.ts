@@ -20,6 +20,10 @@ describe('classifyRisk', () => {
     'echo x > /etc/hosts',
     'truncate -s 0 log.txt',
     'dd if=/dev/zero of=disk.img',
+    'systemctl --user restart openpcbot',
+    'rm --recursive build',
+    'pipx install cowsay',
+    'install -m755 tool /usr/local/bin/tool',
   ];
   const auto = [
     'ls /home/nmaldaner/projetos',

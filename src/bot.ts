@@ -145,6 +145,19 @@ function resolvePermission(chatId: string, allowed: boolean): boolean {
 /** Pausa e pede permissão ao usuário (botão + aceita sim/não). Timeout => nega. */
 async function askPermission(ctx: Context, chatId: string, command: string, reason?: string): Promise<boolean> {
   if (pendingPermission.has(chatId)) return false; // já há uma pendente; nega defensivamente
+  let resolveFn!: (allowed: boolean) => void;
+  const p = new Promise<boolean>((res) => { resolveFn = res; });
+  const timer = setTimeout(() => {
+    const slot = pendingPermission.get(chatId);
+    if (slot && slot.timer === timer) {
+      pendingPermission.delete(chatId);
+      resolveFn(false);
+      void ctx.reply('⏱️ Sem resposta em 3min — comando negado.');
+    }
+  }, PERM_TIMEOUT_MS);
+  // Registra o slot ANTES do await abaixo — fecha a janela TOCTOU onde dois
+  // comandos graves concorrentes poderiam passar pelo check acima.
+  pendingPermission.set(chatId, { resolve: resolveFn, command, timer });
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const shown = command.length > 300 ? command.slice(0, 300) + '…' : command;
   const kb = new InlineKeyboard().text('Permitir ✅', 'perm:allow').text('Negar ❌', 'perm:deny');
@@ -152,14 +165,7 @@ async function askPermission(ctx: Context, chatId: string, command: string, reas
     `🔒 Comando grave${reason ? ` (${reason})` : ''}:\n<code>${esc(shown)}</code>\n\nPermitir? (ou responda sim/não)`,
     { parse_mode: 'HTML', reply_markup: kb },
   );
-  return new Promise<boolean>((resolve) => {
-    const timer = setTimeout(() => {
-      pendingPermission.delete(chatId);
-      resolve(false);
-      void ctx.reply('⏱️ Sem resposta em 3min — comando negado.');
-    }, PERM_TIMEOUT_MS);
-    pendingPermission.set(chatId, { resolve, command, timer });
-  });
+  return p;
 }
 
 /** Classifica → (gate se grave) → executa. Ecoa o comando no chat. Usado pelos dois loops. */
@@ -174,7 +180,7 @@ async function runToolCall(ctx: Context, chatId: string, toolName: string, comma
     return executeShell(command);
   }
   const allowed = await askPermission(ctx, chatId, command, risk.reason);
-  if (!allowed) return 'blocked: usuário negou permissão';
+  if (!allowed) return 'blocked: permissão negada ou outra permissão em andamento';
   await ctx.reply('▶️ rodando...');
   return executeShell(command);
 }
@@ -1802,6 +1808,7 @@ export function createBot(): Bot {
   });
 
   bot.on('callback_query:data', async (ctx) => {
+    if (!isAuthorised(ctx.chat?.id ?? ctx.callbackQuery.from.id)) return;
     const data = ctx.callbackQuery.data;
     if (data === 'perm:allow' || data === 'perm:deny') {
       const chatId = (ctx.chat?.id ?? ctx.callbackQuery.from.id).toString();
@@ -1815,6 +1822,7 @@ export function createBot(): Bot {
   // Text messages — and any slash commands not owned by this bot (skills, e.g. /todo /gmail)
   const OWN_COMMANDS = new Set(['/start', '/help', '/newchat', '/voice', '/model', '/claude', '/ollama', '/codex', '/openrouter', '/models', '/orq', '/memory', '/forget', '/chatid', '/wa', '/slack', '/dashboard', '/stop', '/brain', '/daily', '/dia', '/tldr', '/resuma', '/memoryaudit', '/handoff', '/mkivideos']);
   bot.on('message:text', async (ctx) => {
+    if (!isAuthorised(ctx.chat!.id)) return;
     const text = ctx.message.text;
     const chatIdStr = ctx.chat!.id.toString();
     console.log(`[MSG] ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} chat=${chatIdStr} text=${text.slice(0, 50)}`);
@@ -1848,10 +1856,14 @@ export function createBot(): Bot {
         return;
       }
       const m = arg.match(/^(\d+)\s*(m|min|h)?$/);
-      const n = m ? parseInt(m[1], 10) : 30;
-      const ms = (m?.[2] === 'h' ? n * 60 : n) * 60_000;
+      if (!m) {
+        await ctx.reply('Uso: /livre [Nm|Nh|off|status]. Ex: /livre 30m, /livre 2h, /livre off.');
+        return;
+      }
+      const n = parseInt(m[1], 10);
+      const ms = (m[2] === 'h' ? n * 60 : n) * 60_000;
       setFreeMode(chatIdStr, ms);
-      await ctx.reply(`🔓 Modo livre LIGADO por ${m?.[2] === 'h' ? n + 'h' : n + 'min'}. Graves rodam sem pedir. /livre off pra desligar.`);
+      await ctx.reply(`🔓 Modo livre LIGADO por ${m[2] === 'h' ? n + 'h' : n + 'min'}. Graves rodam sem pedir. /livre off pra desligar.`);
       return;
     }
 
