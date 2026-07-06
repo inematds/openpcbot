@@ -439,9 +439,9 @@ function ollamaSystemPrompt(model: string): string {
     `You are powered by the local model "${model}", served via Ollama on the user's own machine.`,
     'If asked which model or AI you are, answer truthfully with that model name. Do NOT claim to be ChatGPT or made by OpenAI.',
     '',
-    'You have a single `bash` tool for READ-ONLY inspection of this machine (ls, cat, grep, find, git read-only, ps, df, etc). Use it when the user asks about files, projects, or system state. Use absolute paths like /home/nmaldaner/projetos/<name> to inspect other projects.',
-    'You CANNOT write/delete files, run builds, install things, or use the network. For anything that mutates the machine or needs full coding, tell the user to use /claude <msg> (Claude Code, full tools) or /codex <msg> (Codex CLI).',
-    'Do not narrate that you are about to call a tool. Just call it, then answer. Keep responses concise.',
+    'You have a `bash` tool with a FULL shell: you can read AND write files, run git/npm/builds, and use the network. You operate under /home/nmaldaner/projetos — use absolute paths there.',
+    'Just run what the task needs. Dangerous commands (mass delete, sudo, installing system packages, killing processes, touching secrets, or writing outside ~/projetos) will automatically ask the user for permission — so try, the gate handles safety.',
+    'Do not narrate that you are about to call a tool. Just call it, then answer concisely.',
     'All user projects live in /home/nmaldaner/projetos/.',
   ].join('\n');
 }
@@ -478,8 +478,8 @@ async function handleOllamaMessage(ctx: Context, message: string): Promise<void>
 
     const systemMsg: OllamaMessage = { role: 'system', content: ollamaSystemPrompt(model) };
     const messages: OllamaMessage[] = [systemMsg, ...history];
-    const tools = OPENROUTER_TOOLS as unknown as OllamaTool[];
-    const MAX_TOOL_ITERS = 8;
+    const tools = AGENT_TOOLS as unknown as OllamaTool[];
+    const MAX_TOOL_ITERS = 12;
     let finalText = '';
     let promptTokens = 0;
     let completionTokens = 0;
@@ -519,10 +519,8 @@ async function handleOllamaMessage(ctx: Context, message: string): Promise<void>
       messages.push({ role: 'assistant', content: result.content || '', tool_calls: result.toolCalls });
       for (const tc of result.toolCalls) {
         const argsObj = tc.function.arguments ?? {};
-        const display = (argsObj as { command?: string }).command ?? JSON.stringify(argsObj);
-        await ctx.reply(`🔧 ${tc.function.name}: ${String(display).slice(0, 300)}`);
-        // Ollama returns arguments as an object; the executor expects a JSON string.
-        const toolResult = await executeOpenRouterTool(tc.function.name, JSON.stringify(argsObj));
+        const command = String((argsObj as { command?: string }).command ?? '');
+        const toolResult = await runToolCall(ctx, chatIdStr, tc.function.name, command);
         messages.push({ role: 'tool', tool_name: tc.function.name, content: toolResult });
       }
 
