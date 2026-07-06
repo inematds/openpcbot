@@ -22,7 +22,6 @@ import {
 import { ollamaChat, ollamaListModels, ollamaHealthCheck, OllamaMessage, OllamaTool, OllamaResult } from './ollama.js';
 import { openrouterChat, openrouterAvailable, openrouterVisionChat, OpenRouterMessage } from './openrouter.js';
 import { geminiAnalyzeMedia, geminiAvailable } from './gemini.js';
-import { OPENROUTER_TOOLS, executeOpenRouterTool } from './openrouter-tools.js';
 import { AGENT_TOOLS, classifyRisk, executeShell } from './agent-tools.js';
 import { runCodex, codexAvailable } from './codex.js';
 import { routeMessage, AgentTarget } from './router.js';
@@ -575,10 +574,8 @@ function openrouterSystemPrompt(model: string): string {
     'If asked which model or AI you are, answer truthfully with that model name. Do NOT claim to be ChatGPT, GPT-4, or made by OpenAI unless that model name itself says so.',
     '',
     'You CAN answer questions, translate, explain concepts, brainstorm, and have conversations. Keep responses concise.',
-    'You have a single `bash` tool for READ-ONLY inspection of this machine (ls, cat, grep, find, git read-only, ps, df, etc). Use it when the user asks about files, projects, or system state. Use absolute paths like /home/nmaldaner/projetos/<name> to look at other projects.',
-    'You CANNOT write/delete files, run builds, install things, or use the network. For anything that mutates the machine or needs full coding, tell the user to use:',
-    '  /claude <msg> — Claude Code (full tools: bash, files, web search)',
-    '  /codex <msg> — Codex CLI (code tasks)',
+    'You have a `bash` tool with a FULL shell: read AND write files, run git/npm/builds, use the network. You operate under /home/nmaldaner/projetos — use absolute paths there. Just run what the task needs; dangerous commands (mass delete, sudo, system installs, killing processes, secrets, or writing outside ~/projetos) will ask the user for permission automatically.',
+    'For heavy multi-step coding, you may suggest the user use /claude (Claude Code) or /codex (Codex CLI).',
   ].join('\n');
 }
 
@@ -620,13 +617,13 @@ async function handleOpenrouterMessage(ctx: Context, message: string): Promise<v
     // (or we hit the iteration cap). Tool round-trips live in `messages` only;
     // stored `history` keeps just clean user/assistant turns for continuity.
     const messages: OpenRouterMessage[] = [systemMsg, ...history];
-    const MAX_TOOL_ITERS = 8;
+    const MAX_TOOL_ITERS = 12;
     let finalText = '';
     let promptTokens = 0;
     let completionTokens = 0;
 
     for (let iter = 0; iter < MAX_TOOL_ITERS; iter++) {
-      const result = await openrouterChat(model, messages, { tools: OPENROUTER_TOOLS });
+      const result = await openrouterChat(model, messages, { tools: AGENT_TOOLS });
       promptTokens += result.promptTokens;
       completionTokens += result.completionTokens;
 
@@ -639,10 +636,9 @@ async function handleOpenrouterMessage(ctx: Context, message: string): Promise<v
       // the command for transparency (these run on the user's machine).
       messages.push({ role: 'assistant', content: result.content || null, tool_calls: result.toolCalls });
       for (const tc of result.toolCalls) {
-        let display = tc.function.arguments;
-        try { display = JSON.parse(tc.function.arguments).command ?? display; } catch { /* keep raw */ }
-        await ctx.reply(`🔧 ${tc.function.name}: ${String(display).slice(0, 300)}`);
-        const toolResult = await executeOpenRouterTool(tc.function.name, tc.function.arguments);
+        let command = '';
+        try { command = String(JSON.parse(tc.function.arguments).command ?? ''); } catch { command = ''; }
+        const toolResult = await runToolCall(ctx, chatIdStr, tc.function.name, command);
         messages.push({ role: 'tool', tool_call_id: tc.id, name: tc.function.name, content: toolResult });
       }
 
