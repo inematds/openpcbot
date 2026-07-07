@@ -49,6 +49,12 @@ Execute. Don't explain what you're about to do — just do it. When [YOUR NAME] 
 - **To work on a specific project**, `cd` into its directory first. Example: if user says "projeto voos", work in `/home/nmaldaner/projetos/voos/`.
 - **Gemini API key**: stored in this project's `.env` as `GOOGLE_API_KEY` — use this when video understanding is needed.
 
+## Git — autor de commits (regra obrigatória)
+
+- **Autor de TODO commit = `inematds <inematds@gmail.com>`**, em qualquer repo/projeto, a menos que o usuário peça explicitamente outro autor. Vale para author E committer (o Vercel Hobby bloqueia deploy de autor sem acesso).
+- Antes de commitar num repo, conferir `git config user.email`; se divergir, corrigir com `git config user.email inematds@gmail.com` (e `git config user.name inematds`).
+- Se o Vercel bloquear um deploy por autor, o fix autorizado é: commit vazio com esse autor + push.
+
 ## Como (re)startar o serviço
 
 O bot roda como **serviço systemd de USUÁRIO** (unit em `~/.config/systemd/user/openpcbot.service`), a partir do `dist/`. Toda mudança em `src/` **ou** no `.env` só entra no ar depois de rebuild + restart.
@@ -61,6 +67,14 @@ npm run build && systemctl --user restart openpcbot
 - Em shell não-login, exportar antes: `export XDG_RUNTIME_DIR="/run/user/$(id -u)"`.
 - O serviço é `Restart=no`: matar o processo **não** reinicia sozinho. Sempre use o `systemctl --user restart`.
 - Verificar: `systemctl --user status openpcbot` / logs `journalctl --user -u openpcbot -n 30 --no-pager`. Boot ok = linha `OpenPCBot online: @inemaclaudebot`.
+
+## Self-learning
+
+When I correct you, or you catch yourself making a mistake: before continuing, add the lesson as a one-line rule under ## Lessons, so it never happens again.
+
+## Lessons
+
+- (Claude adds rules here)
 
 ## Publicação de vídeos (lives9 / lives2)
 
