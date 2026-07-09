@@ -51,9 +51,10 @@ Execute. Don't explain what you're about to do — just do it. When [YOUR NAME] 
 
 ## Git — autor de commits (regra obrigatória)
 
-- **Autor de TODO commit = `inematds <inematds@gmail.com>`**, em qualquer repo/projeto, a menos que o usuário peça explicitamente outro autor. Vale para author E committer (o Vercel Hobby bloqueia deploy de autor sem acesso).
-- Antes de commitar num repo, conferir `git config user.email`; se divergir, corrigir com `git config user.email inematds@gmail.com` (e `git config user.name inematds`).
+- **Autor de TODO commit = `NeiMaldaner <nei.maldaner2014@gmail.com>`**, em qualquer repo/projeto, a menos que o usuário peça explicitamente outro autor. Vale para author E committer (o Vercel Hobby bloqueia deploy de autor sem acesso).
+- Antes de commitar num repo, conferir `git config user.email`; se divergir, corrigir com `git config user.email nei.maldaner2014@gmail.com` (e `git config user.name NeiMaldaner`).
 - Se o Vercel bloquear um deploy por autor, o fix autorizado é: commit vazio com esse autor + push.
+- (Mudou em 2026-07-09 — era `inematds <inematds@gmail.com>`; repos migraram de conta GitHub `inematds` pra `NeiMaldaner`.)
 
 ## Como (re)startar o serviço
 
